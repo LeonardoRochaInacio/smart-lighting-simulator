@@ -1,0 +1,28 @@
+version: '3'
+services:
+
+#AdonisJS Service
+  microservice_s1:
+    container_name: microservice_s1
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+
+    restart: unless-stopped
+    env_file:
+      - .env
+    tty: true
+    volumes:
+      - ./:/home/node/app
+      - /home/node/app/node_modules/
+    ports:
+      - ${PORT}:${PORT}
+      - 9229:9229
+    networks:
+      - mirari-iluminacao-server_app-network
+
+#Docker Networks
+networks:
+  mirari-iluminacao-server_app-network:
+    external: true
