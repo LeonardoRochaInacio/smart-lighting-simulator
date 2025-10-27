@@ -1,9 +1,8 @@
-version: '3'
 services:
 
 #AdonisJS Service
-  microservice_s1:
-    container_name: microservice_s1
+  microservice_smart_lighting_arroio_sim:
+    container_name: microservice_smart_lighting_arroio_sim
     build:
       context: .
       dockerfile: Dockerfile
@@ -18,7 +17,7 @@ services:
       - /home/node/app/node_modules/
     ports:
       - ${PORT}:${PORT}
-      - 9229:9229
+
     networks:
       - mirari-iluminacao-server_app-network
 
