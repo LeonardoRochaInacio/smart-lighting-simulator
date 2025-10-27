@@ -24,6 +24,7 @@ server.errorHandler(() => import('#exceptions/handler'))
  */
 server.use([
   () => import('#middleware/container_bindings_middleware'),
+  () => import('#middleware/request_logger_middleware'),
   () => import('#middleware/force_json_response_middleware'),
   () => import('@adonisjs/cors/cors_middleware'),
   () => import('#middleware/api_token_check_middleware'),
@@ -40,5 +41,5 @@ router.use([() => import('@adonisjs/core/bodyparser_middleware')])
  * the routes or the routes group.
  */
 export const middleware = router.named({
-  microservice_process_check: () => import('#middleware/microservice_process_check'),
+
 })

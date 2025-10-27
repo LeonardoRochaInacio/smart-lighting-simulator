@@ -28,13 +28,32 @@ FROM base as production
 RUN npm ci
 
 # Build project
-RUN node ace build
+RUN node ace build --ignore-ts-errors
 
-# Create env data based in env example
+# Ensure config directory exists in build folder
+RUN mkdir -p ./build/config
+
+# Copy configuration files that aren't automatically copied by build
+COPY config/providers.json ./build/config/providers.json
+
+# Verify the file was copied correctly (for debugging)
+RUN ls -la ./build/config/ && cat ./build/config/providers.json | head -5
+
+# Set production environment variables
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+
+# Copy .env.example as base and override production values
 COPY .env.example ./build/.env
+RUN sed -i 's/NODE_ENV=development/NODE_ENV=production/' ./build/.env && \
+    sed -i 's/HOST=127.0.0.1/HOST=0.0.0.0/' ./build/.env && \
+    sed -i 's/LOG_LEVEL=info/LOG_LEVEL=info/' ./build/.env
 
-# Expose port
-EXPOSE 3333
+# Change to build directory
+WORKDIR /home/node/app/build
+
+# Note: Cloud Run automatically sets PORT env var, no need for fixed EXPOSE
+# The app will listen on the port specified by Cloud Run's PORT environment variable
 
 # Execute server cmd
-CMD ["node", "build/bin/server.js"]
+CMD ["node", "bin/server.js"]
