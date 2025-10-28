@@ -158,8 +158,9 @@ export class LightingService
     }
 
     public async getRelayDetails(concentratorId: number, relayId: number) 
-    {
+    { 
         await this.initialize()
+        
 
         const concentrator = this.concentrators.get(concentratorId)
         if (!concentrator) 

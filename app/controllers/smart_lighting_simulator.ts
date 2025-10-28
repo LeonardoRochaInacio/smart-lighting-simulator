@@ -1,14 +1,14 @@
 import { HttpContext } from '@adonisjs/core/http'
-import { LightingService } from '#app/services/lighting_service'
-import { Commands } from '#app/types/lighting_types'
+import { InMemoryDataService } from '#services/in_memory_data_service'
+import { Commands } from '../types/lighting_types.js'
 
 export default class SmartLightingSimulator
 {
-    private lightingService: LightingService
+    private dataService: InMemoryDataService
 
     constructor() 
     {
-        this.lightingService = LightingService.getInstance()
+        this.dataService = InMemoryDataService.getInstance()
     }
 
     /**
@@ -19,15 +19,20 @@ export default class SmartLightingSimulator
     {
         try 
         {
-            const offset = request.input('offset', 0)
-            const limit = request.input('limit', 1000)
+            const offset = parseInt(request.input('offset', '0'))
+            const limit = parseInt(request.input('limit', '1000'))
             
-            const result = await this.lightingService.getConcentrators(
-                parseInt(offset), 
-                parseInt(limit)
-            )
+            const result = this.dataService.getAllConcentrators(offset, limit)
             
-            return response.json(result)
+            return response.json({
+                data: result.data,
+                total: result.total,
+                offset,
+                limit,
+                success: true,
+                elapsedTime: `${(Math.random() * 50 + 10).toFixed(4)}ms`,
+                totalRetornado: result.data.length
+            })
         } 
         catch (error) 
         {
@@ -56,18 +61,25 @@ export default class SmartLightingSimulator
                 })
             }
             
-            const result = await this.lightingService.getConcentratorDetails(concentratorId)
+            const concentrator = this.dataService.getConcentratorDetails(concentratorId)
+            
+            if (!concentrator) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Concentrador ${concentratorId} não encontrado`
+                })
+            }
             
             return response.json({
-                success: true,
-                data: result
+                data: concentrator,
+                success: true
             })
         } 
         catch (error) 
         {
-            return response.status(404).json({
+            return response.status(500).json({
                 success: false,
-                message: error.message || 'Concentrador não encontrado'
+                message: error.message || 'Erro interno do servidor'
             })
         }
     }
@@ -81,8 +93,8 @@ export default class SmartLightingSimulator
         try 
         {
             const concentratorId = parseInt(params.id)
-            const offset = request.input('offset', 0)
-            const limit = request.input('limit', 1000)
+            const offset = parseInt(request.input('offset', '0'))
+            const limit = parseInt(request.input('limit', '1000'))
             
             if (isNaN(concentratorId)) 
             {
@@ -92,19 +104,30 @@ export default class SmartLightingSimulator
                 })
             }
             
-            const result = await this.lightingService.getRelaysByConcentrator(
-                concentratorId,
-                parseInt(offset), 
-                parseInt(limit)
-            )
+            const result = this.dataService.getConcentratorRelays(concentratorId, offset, limit)
             
-            return response.json(result)
+            if (!result) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Concentrador ${concentratorId} não encontrado`
+                })
+            }
+            
+            return response.json({
+                data: result.data,
+                total: result.total,
+                offset,
+                limit,
+                success: true,
+                elapsedTime: `${(Math.random() * 100 + 20).toFixed(4)}ms`,
+                totalRetornado: result.data.length
+            })
         } 
         catch (error) 
         {
-            return response.status(404).json({
+            return response.status(500).json({
                 success: false,
-                message: error.message || 'Concentrador não encontrado'
+                message: error.message || 'Erro interno do servidor'
             })
         }
     }
@@ -128,18 +151,25 @@ export default class SmartLightingSimulator
                 })
             }
             
-            const result = await this.lightingService.getRelayDetails(concentratorId, relayId)
+            const relay = this.dataService.getRelayDetails(concentratorId, relayId)
+            if (!relay) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Relé ${relayId} não encontrado no concentrador ${concentratorId}`
+                })
+            }
             
+            console.log(relay)
             return response.json({
-                success: true,
-                data: result
+                data: relay,
+                success: true
             })
         } 
         catch (error) 
         {
-            return response.status(404).json({
+            return response.status(500).json({
                 success: false,
-                message: error.message || 'Relé não encontrado'
+                message: error.message || 'Erro interno do servidor'
             })
         }
     }
@@ -191,14 +221,54 @@ export default class SmartLightingSimulator
                 })
             }
             
-            const result = await this.lightingService.executeCommand({
-                command,
-                concentratorId: parseInt(concentratorId),
-                relayId: parseInt(relayId),
+            const success = this.dataService.executeCommand(
+                parseInt(concentratorId), 
+                parseInt(relayId), 
+                command, 
                 parameters
-            })
+            )
             
-            return response.json(result)
+            if (!success) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Relé ${relayId} não encontrado no concentrador ${concentratorId}`
+                })
+            }
+            
+            // Gerar mensagem de sucesso
+            let resultMessage = `Comando '${command}' executado com sucesso no relé ${relayId} através do concentrador ${concentratorId}`
+            
+            // Adicionar informações específicas do comando
+            switch (command) {
+                case Commands.TURN_LIGHT_ON:
+                    resultMessage += '. Luminária foi ligada.'
+                    break
+                case Commands.TURN_LIGHT_OFF:
+                    resultMessage += '. Luminária foi desligada.'
+                    break
+                case Commands.PROGRAM_DIMMER_PERCENTAGE:
+                    if (parameters?.percentage) {
+                        resultMessage += `. Dimmer programado para ${parameters.percentage}%.`
+                    }
+                    break
+                case Commands.SETUP_LIGHT_TIME_PROGRAM:
+                    if (parameters?.onTime && parameters?.offTime) {
+                        resultMessage += `. Programação horária configurada: Liga ${parameters.onTime}, Desliga ${parameters.offTime}.`
+                    }
+                    break
+            }
+            
+            return response.json({
+                success: true,
+                message: resultMessage,
+                timestamp: new Date().toISOString(),
+                commandDetails: {
+                    command,
+                    concentratorId: parseInt(concentratorId),
+                    relayId: parseInt(relayId),
+                    parameters: parameters || {}
+                }
+            })
         } 
         catch (error) 
         {
@@ -217,12 +287,37 @@ export default class SmartLightingSimulator
     {
         try 
         {
-            await this.lightingService.initialize()
+            // Obter dados do sistema através do dataService
+            const allConcentrators = this.dataService.getAllConcentrators(0, 999999)
+            const totalRelays = allConcentrators.data.reduce((total, concentrator) => {
+                const concentratorDetails = this.dataService.getConcentratorDetails(parseInt(concentrator.id))
+                return total + (concentratorDetails?.totalRelays || 0)
+            }, 0)
             
             return response.json({
                 success: true,
                 message: 'Sistema de simulação de iluminação inteligente operacional',
                 timestamp: new Date().toISOString(),
+                totalConcentrators: allConcentrators.total,
+                totalRelays: totalRelays,
+                availableEndpoints: {
+                    concentrators: [
+                        'GET /concentrators - Lista concentradores',
+                        'GET /concentrators/:id/details - Detalhes do concentrador',
+                        'GET /get_concentrators - Alias para compatibilidade',
+                        'GET /get_concentrator_details/:id - Alias para compatibilidade'
+                    ],
+                    relays: [
+                        'GET /concentrators/:id/relays - Lista relés do concentrador',
+                        'GET /concentrators/:concentratorId/relays/:relayId/details - Detalhes do relé',
+                        'GET /get_relays/:id - Alias para compatibilidade', 
+                        'GET /get_relay_details/:concentratorId/:relayId - Alias para compatibilidade'
+                    ],
+                    commands: [
+                        'POST /commands - Executa comando no relé',
+                        'POST /execute_command - Alias para compatibilidade'
+                    ]
+                },
                 availableCommands: [
                     Commands.TURN_LIGHT_ON,
                     Commands.TURN_LIGHT_OFF,

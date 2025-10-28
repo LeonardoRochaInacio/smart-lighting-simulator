@@ -158,8 +158,8 @@ export class InMemoryDataService {
     private calculateInitialRelayState(): boolean {
         const now = new Date()
         const isNight = now.getHours() >= 18 || now.getHours() <= 6
-        // À noite, 70% ligado, de dia 30% ligado
-        return Math.random() < (isNight ? 0.7 : 0.3)
+        // À noite, 99% ligado, de dia 1% ligado
+        return Math.random() < (isNight ? 0.99 : 0.01)
     }
 
     private calculateAmbientLight(): number {
@@ -208,9 +208,9 @@ export class InMemoryDataService {
         const isNight = now.getHours() >= 18 || now.getHours() <= 6
         
         if (isNight) {
-            // À noite, maior probabilidade de estar ligado
-            const nightStatuses: RelayStatusType[] = ['0101', '0110', '0001', '0010', '0011', '0100', '0111', '1000', '1001', '1010', '1011']
-            const nightWeights = [0.6, 0.15, 0.05, 0.1, 0.02, 0.02, 0.03, 0.01, 0.01, 0.005, 0.005]
+            // À noite, 95% ligado, 3% desligado, 2% outros status
+            const nightStatuses: RelayStatusType[] = ['0101', '0110', '0111', '0001', '0010', '0011', '0100', '1000', '1001', '1010', '1011']
+            const nightWeights = [0.85, 0.03, 0.10, 0.005, 0.005, 0.002, 0.002, 0.002, 0.002, 0.001, 0.001]
             
             const random = Math.random()
             let cumulative = 0
@@ -222,9 +222,9 @@ export class InMemoryDataService {
                 }
             }
         } else {
-            // Durante o dia, maior probabilidade de estar desligado
+            // Durante o dia, 98% desligado, apenas 1-2% ligado
             const dayStatuses: RelayStatusType[] = ['0110', '0101', '0010', '0001', '0011', '0100', '0111', '1000', '1001', '1010', '1011']
-            const dayWeights = [0.6, 0.1, 0.05, 0.1, 0.02, 0.02, 0.03, 0.01, 0.01, 0.005, 0.005]
+            const dayWeights = [0.98, 0.01, 0.002, 0.002, 0.001, 0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005]
             
             const random = Math.random()
             let cumulative = 0
@@ -390,14 +390,20 @@ export class InMemoryDataService {
                 const now = new Date()
                 const isNight = now.getHours() >= 18 || now.getHours() <= 6
                 
-                if (isNight && !relay.isOn && Math.random() < 0.05) {
+                if (isNight && !relay.isOn && Math.random() < 0.03) {
+                    // À noite, chance de ligar relés que estão desligados
                     relay.isOn = true
                     relay.status = '0101'
                     relay.lightingTime = new Date().toISOString().split('T')[1].split('.')[0]
-                } else if (!isNight && relay.isOn && Math.random() < 0.05) {
+                } else if (!isNight && relay.isOn && Math.random() < 0.8) {
+                    // Durante o dia, alta chance de desligar relés que estão ligados
                     relay.isOn = false
                     relay.status = '0110'
                     relay.shutdownTime = new Date().toISOString().split('T')[1].split('.')[0]
+                } else if (!isNight && !relay.isOn && Math.random() < 0.001) {
+                    // Durante o dia, chance mínima de ligar (apenas para simulação realística)
+                    relay.isOn = true
+                    relay.status = '0001' // Acesa durante o dia (situação anômala)
                 }
             }
 
