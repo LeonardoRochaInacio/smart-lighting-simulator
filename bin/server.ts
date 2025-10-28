@@ -34,6 +34,19 @@ new Ignitor(APP_ROOT, { importer: IMPORTER })
     app.booting(async () => {
       await import('#start/env')
     })
+    app.ready(async () => {
+      // Inicializar serviço de dados em memória
+      const { InMemoryDataService } = await import('#services/in_memory_data_service')
+      const dataService = InMemoryDataService.getInstance()
+      await dataService.initialize()
+      
+      // Iniciar simulação automática (atualizar dados a cada 30 segundos)
+      setInterval(() => {
+        dataService.simulateSystemUpdates()
+      }, 30000)
+      
+      console.log('🌟 Sistema de simulação de iluminação inicializado com sucesso!')
+    })
     app.listen('SIGTERM', () => app.terminate())
     app.listenIf(app.managedByPm2, 'SIGINT', () => app.terminate())
   })

@@ -145,8 +145,9 @@ export class LightingService
 
     public async getConcentratorDetails(concentratorId: number) 
     {
-        await this.initialize()
-
+        
+        await this.initialize()   
+        
         const concentrator = this.concentrators.get(concentratorId)
         if (!concentrator) 
         {
