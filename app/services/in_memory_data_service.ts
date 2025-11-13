@@ -546,6 +546,10 @@ export class InMemoryDataService {
             case 'enable_light_time_program':
                 relay.programmingHour = true
                 break
+
+             case 'disable_light_time_program':
+                relay.programmingHour = false
+                break
                 
             case 'setup_light_time_program':
                 if (parameters?.onTime && parameters?.offTime) {

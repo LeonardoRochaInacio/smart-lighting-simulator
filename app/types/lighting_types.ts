@@ -154,5 +154,6 @@ export const Commands = {
     ENABLE_LIGHT_SENSOR: 'enable_light_sensor',
     DISABLE_LIGHT_SENSOR: 'disable_light_sensor',
     ENABLE_LIGHT_TIME_PROGRAM: 'enable_light_time_program',
+    DISABLE_LIGHT_TIME_PROGRAM: 'disable_light_time_program',
     SETUP_LIGHT_TIME_PROGRAM: 'setup_light_time_program'
 } as const

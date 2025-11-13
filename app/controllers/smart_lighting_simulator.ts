@@ -200,6 +200,7 @@ export default class SmartLightingSimulator
                 Commands.PROGRAM_DIMMER_PERCENTAGE,
                 Commands.DISABLE_LIGHT_SENSOR,
                 Commands.ENABLE_LIGHT_TIME_PROGRAM,
+                Commands.DISABLE_LIGHT_TIME_PROGRAM,
                 Commands.SETUP_LIGHT_TIME_PROGRAM,
                 Commands.ENABLE_LIGHT_SENSOR
             ]
