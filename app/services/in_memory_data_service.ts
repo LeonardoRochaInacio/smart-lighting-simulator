@@ -157,7 +157,8 @@ export class InMemoryDataService {
                     dimmerProgrammingValue: '',
                     dimmerPresent: Math.random() > 0.4,
                     currentDimmerValue: Math.random() > 0.4 ? Math.floor(Math.random() * 101) : 0, // 0-100%
-                    lightSensorPresent: Math.random() > 0.2,
+                    lightSensorPresent: true,
+                    isLightSensorEnabled: undefined, // Será definido após lightSensorPresent
                     gpsPresent: Math.random() > 0.7,
                     temperatureSensorPresent: Math.random() > 0.8,
                     currentTemperatureValue: Math.random() > 0.8 ? parseFloat((Math.random() * 20 + 15).toFixed(1)) : undefined, // 15-35°C
@@ -199,6 +200,9 @@ export class InMemoryDataService {
                 // Definir status baseado na presença de dimmer
                 relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
 
+                // Configurar sensor de luz: habilitado por padrão se sensor estiver fisicamente presente
+                relay.isLightSensorEnabled = relay.lightSensorPresent
+
                 // Inicializar sensores de temperatura e umidade baseado na presença
                 if (relay.temperatureSensorPresent && relay.currentTemperatureValue === undefined) {
                     relay.currentTemperatureValue = parseFloat((Math.random() * 20 + 15).toFixed(1))
@@ -233,6 +237,39 @@ export class InMemoryDataService {
     private calculateAmbientLight(): number {
         const isNight = this.isNightTime()
         return isNight ? Math.floor(Math.random() * 100) : Math.floor(Math.random() * 500) + 500
+    }
+
+    // Simular comportamento do sensor de luz (LDR)
+    private simulateLightSensor(relay: RelayDetails): boolean {
+        // Sensor precisa estar fisicamente presente E habilitado
+        if (!relay.lightSensorPresent || !relay.isLightSensorEnabled) return false
+
+        const currentLight = relay.ambientLight
+        const isNight = this.isNightTime()
+        
+        // Limiares do sensor LDR (ajustáveis)
+        const NIGHT_THRESHOLD = 150  // Abaixo deste valor, considera noite
+        const DAY_THRESHOLD = 400    // Acima deste valor, considera dia
+        
+        // Sensor detecta baixa luminosidade (noite)
+        if (currentLight < NIGHT_THRESHOLD && !relay.isOn && isNight) {
+            // LDR detecta escuridão, liga automaticamente
+            relay.isOn = true
+            relay.status = '0101'
+            relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+            return true
+        }
+        
+        // Sensor detecta alta luminosidade (dia)
+        if (currentLight > DAY_THRESHOLD && relay.isOn && !isNight) {
+            // LDR detecta claridade, desliga automaticamente
+            relay.isOn = false
+            relay.status = '0110'
+            relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+            return true
+        }
+        
+        return false
     }
 
     private calculateTotalPower(): number {
@@ -490,9 +527,20 @@ export class InMemoryDataService {
                 }
                 break
                 
+            case 'enable_light_sensor':
+                if (relay.lightSensorPresent) {
+                    relay.isLightSensorEnabled = true
+                    // Sensor de luz (LDR) habilitado: luminária será controlada automaticamente
+                    // Liga quando luminosidade < 150 lux (noite), desliga quando > 400 lux (dia)
+                } else {
+                    return false // Não pode habilitar se sensor não estiver fisicamente presente
+                }
+                break
+                
             case 'disable_light_sensor':
-                if(relay.lightSensorPresent)
-                relay.lightSensorPresent = false
+                relay.isLightSensorEnabled = false
+                // Sensor de luz (LDR) desabilitado: sem controle automático por luminosidade
+                // Controle apenas manual ou por programação horária
                 break
                 
             case 'enable_light_time_program':
@@ -581,6 +629,7 @@ export class InMemoryDataService {
         sensorsPresent: {
             dimmer: number
             lightSensor: number
+            lightSensorEnabled: number
             gps: number
             temperature: number
             humidity: number
@@ -599,6 +648,7 @@ export class InMemoryDataService {
         const sensorsPresent = {
             dimmer: allRelays.filter(r => r.dimmerPresent).length,
             lightSensor: allRelays.filter(r => r.lightSensorPresent).length,
+            lightSensorEnabled: allRelays.filter(r => r.lightSensorPresent && r.isLightSensorEnabled).length,
             gps: allRelays.filter(r => r.gpsPresent).length,
             temperature: allRelays.filter(r => r.temperatureSensorPresent).length,
             humidity: allRelays.filter(r => r.humiditySensorPresent).length,
@@ -654,29 +704,13 @@ export class InMemoryDataService {
 
         // Atualizar dados dos relés baseado em horário e sensores
         this.relays.forEach(relay => {
-            // Simular mudanças baseadas em sensor de luz
-            if (relay.lightSensorPresent && !relay.programmingHour) {
-                const isNight = this.isNightTime()
-                
-                if (isNight && !relay.isOn && Math.random() < 0.03) {
-                    // À noite, chance de ligar relés que estão desligados
-                    relay.isOn = true
-                    relay.status = '0101'
-                    relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
-                } else if (!isNight && relay.isOn && Math.random() < 0.8) {
-                    // Durante o dia, alta chance de desligar relés que estão ligados
-                    relay.isOn = false
-                    relay.status = '0110'
-                    relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
-                } else if (!isNight && !relay.isOn && Math.random() < 0.001) {
-                    // Durante o dia, chance mínima de ligar (apenas para simulação realística)
-                    relay.isOn = true
-                    relay.status = '0001' // Acesa durante o dia (situação anômala)
-                }
-            }
-
-            // Atualizar sensores
+            // Atualizar luz ambiente primeiro
             relay.ambientLight = this.calculateAmbientLight()
+            
+            // Simular sensor de luz (LDR) - apenas se sensor presente, habilitado e sem programação horária manual
+            if (relay.lightSensorPresent && relay.isLightSensorEnabled && !relay.programmingHour) {
+                this.simulateLightSensor(relay)
+            }
             
             // Simular sensor de temperatura
             if (relay.temperatureSensorPresent && relay.currentTemperatureValue !== undefined) {

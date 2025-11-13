@@ -159,7 +159,6 @@ export default class SmartLightingSimulator
                 })
             }
             
-            console.log(relay)
             return response.json({
                 data: relay,
                 success: true
@@ -183,7 +182,6 @@ export default class SmartLightingSimulator
         try 
         {
             const { command, concentratorId, relayId, parameters } = request.body()
-            
             // Validar dados de entrada
             if (!command || !concentratorId || !relayId) 
             {
@@ -202,7 +200,8 @@ export default class SmartLightingSimulator
                 Commands.PROGRAM_DIMMER_PERCENTAGE,
                 Commands.DISABLE_LIGHT_SENSOR,
                 Commands.ENABLE_LIGHT_TIME_PROGRAM,
-                Commands.SETUP_LIGHT_TIME_PROGRAM
+                Commands.SETUP_LIGHT_TIME_PROGRAM,
+                Commands.ENABLE_LIGHT_SENSOR
             ]
             let commandValid = false
             for (const validCommand of validCommands) 

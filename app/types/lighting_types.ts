@@ -71,6 +71,7 @@ export interface RelayDetails
     dimmerPresent: boolean
     currentDimmerValue?: number
     lightSensorPresent: boolean
+    isLightSensorEnabled?: boolean
     gpsPresent?: boolean
     temperatureSensorPresent: boolean
     currentTemperatureValue?: number
@@ -150,6 +151,7 @@ export const Commands = {
     ENABLE_DIMMER: 'enable_dimmer',
     DISABLE_DIMMER: 'disable_dimmer',
     PROGRAM_DIMMER_PERCENTAGE: 'program_dimmer_percentage',
+    ENABLE_LIGHT_SENSOR: 'enable_light_sensor',
     DISABLE_LIGHT_SENSOR: 'disable_light_sensor',
     ENABLE_LIGHT_TIME_PROGRAM: 'enable_light_time_program',
     SETUP_LIGHT_TIME_PROGRAM: 'setup_light_time_program'
