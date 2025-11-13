@@ -34,11 +34,15 @@ export interface RelayDetails
     idRelay: number
     idConcentrator: number
     sector?: number
+    subSector?: number
+    areaGroup?: number
+    observation?: string
     isOn: boolean
     status: string
     totalPower: number
     numberOfLights: number
     version: number
+    hardwareVersion: string
     installationDate: string
     voltage: number
     current: number
@@ -46,6 +50,7 @@ export interface RelayDetails
     reactivePower: number
     apparentPower: number
     powerFactor: number
+    activeEnergy: number
     frequency: string
     ambientLight: number
     signal: number
@@ -53,17 +58,37 @@ export interface RelayDetails
     longitude: number
     label: string
     failureDetected: string
+    lastDetectedFailure?: string
+    lastDetectedFailureDate?: string
+    switchType?: string
+    defaultOnTime?: string
+    defaultOffTime?: string
+    firmwareVersion: string
     programmingHour: boolean
     hourProgrammingValue: string
     dimmerProgramming: boolean
     dimmerProgrammingValue: string
     dimmerPresent: boolean
+    currentDimmerValue?: number
     lightSensorPresent: boolean
+    gpsPresent?: boolean
     temperatureSensorPresent: boolean
+    currentTemperatureValue?: number
+    temperatureUnit?: string
+    humiditySensorPresent?: boolean
+    currentHumidityValue?: number
+    humidityUnit?: string
+    motionSensorPresent?: boolean
+    motionLevel?: number
+    motionLevelUnit?: string
+    lastMotionDetectedTime?: string
+    motionDetectedCount?: number
     lightingTime: string
     shutdownTime: string
     timeOn: string
     energyConsumption: number
+    signal1Range?: string
+    signal1Strength?: number
 }
 
 export interface RelaySummary 

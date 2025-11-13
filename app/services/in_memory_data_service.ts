@@ -101,11 +101,15 @@ export class InMemoryDataService {
                     idRelay: relayData.id,
                     idConcentrator: concentratorData.id,
                     sector: Math.random() > 0.3 ? Math.floor(Math.random() * 10) + 1 : undefined,
+                    subSector: Math.random() > 0.4 ? Math.floor(Math.random() * 5) + 1 : undefined,
+                    areaGroup: Math.random() > 0.5 ? Math.floor(Math.random() * 3) + 1 : undefined,
+                    observation: Math.random() > 0.7 ? this.generateRandomObservation() : undefined,
                     isOn: this.calculateInitialRelayState(),
-                    status: this.getRandomRelayStatus(),
+                    status: '0110', // Será definido após configurar dimmer
                     totalPower: 0, // Será calculado
-                    numberOfLights: 1,
+                    numberOfLights: Math.floor(Math.random() * 3) + 1, // 1-3 luminárias
                     version: Math.floor(Math.random() * 10) + 1,
+                    hardwareVersion: `v0.9`,
                     installationDate: new Date(Date.now() - Math.random() * 94608000000).toISOString(),
                     voltage: Math.floor(Math.random() * 40) + 200,
                     current: parseFloat((Math.random() * 3 + 1).toFixed(2)),
@@ -113,6 +117,7 @@ export class InMemoryDataService {
                     reactivePower: 0, // Será calculado
                     apparentPower: 0, // Será calculado
                     powerFactor: parseFloat((Math.random() * 0.2 + 0.8).toFixed(2)),
+                    activeEnergy: parseFloat((Math.random() * 5000 + 1000).toFixed(2)), // kWh acumulado
                     frequency: '60',
                     ambientLight: this.calculateAmbientLight(),
                     signal: Math.floor(Math.random() * 40) - 80,
@@ -120,19 +125,37 @@ export class InMemoryDataService {
                     longitude: relayData.longitude,
                     label: `REL_${relayData.id}`,
                     failureDetected: '',
+                    lastDetectedFailure: Math.random() > 0.8 ? this.generateRandomFailure() : undefined,
+                    lastDetectedFailureDate: Math.random() > 0.8 ? new Date(Date.now() - Math.random() * 2592000000).toISOString() : undefined,
+                    switchType: Math.random() > 0.5 ? 'NO' : 'NC', // Normally Open ou Normally Closed
+                    defaultOnTime: Math.random() > 0.6 ? '18:00' : undefined,
+                    defaultOffTime: Math.random() > 0.6 ? '06:00' : undefined,
+                    firmwareVersion: `v1.7.5`,
                     programmingHour: Math.random() > 0.5,
                     hourProgrammingValue: '',
                     dimmerProgramming: false,
                     dimmerProgrammingValue: '',
                     dimmerPresent: Math.random() > 0.4,
+                    currentDimmerValue: Math.random() > 0.4 ? Math.floor(Math.random() * 101) : 0, // 0-100%
                     lightSensorPresent: Math.random() > 0.2,
+                    gpsPresent: Math.random() > 0.7,
                     temperatureSensorPresent: Math.random() > 0.8,
+                    currentTemperatureValue: Math.random() > 0.8 ? parseFloat((Math.random() * 20 + 15).toFixed(1)) : undefined, // 15-35°C
+                    temperatureUnit: 'Celsius',
+                    humiditySensorPresent: Math.random() > 0.6,
+                    currentHumidityValue: Math.random() > 0.6 ? Math.floor(Math.random() * 60 + 30) : undefined, // 30-90%
+                    humidityUnit: 'Porcentagem (%)',
+                    motionSensorPresent: Math.random() > 0.3,
+                    motionLevel: Math.random() > 0.3 ? Math.floor(Math.random() * 101) : undefined, // 0-100%
+                    motionLevelUnit: 'Porcentagem (%)',
+                    lastMotionDetectedTime: Math.random() > 0.3 ? new Date(Date.now() - Math.random() * 86400000).toISOString() : undefined,
+                    motionDetectedCount: Math.random() > 0.3 ? Math.floor(Math.random() * 50) : undefined,
                     lightingTime: '',
                     shutdownTime: '',
                     timeOn: '00:00:00',
                     energyConsumption: parseFloat((Math.random() * 1000).toFixed(2)),
-                    firmwareVersion: `v1.3.5`,
-                    hardwareVersion: `v0.9`
+                    signal1Range: '300kHz',
+                    signal1Strength: Math.floor(Math.random() * 40) - 80 // -80 a -40 dBm
                 }
 
                 // Calcular todas as potências usando o novo método
@@ -146,7 +169,28 @@ export class InMemoryDataService {
                 // Configurar dimmer se presente e programado
                 if (relay.dimmerPresent && Math.random() > 0.7) {
                     relay.dimmerProgramming = true
-                    relay.dimmerProgrammingValue = `${Math.floor(Math.random() * 50) + 50}%`
+                    const percentage = Math.floor(Math.random() * 50) + 50
+                    relay.dimmerProgrammingValue = `${percentage}%`
+                    relay.currentDimmerValue = percentage
+                } else if (relay.dimmerPresent) {
+                    relay.currentDimmerValue = relay.isOn ? 100 : 0
+                }
+
+                // Definir status baseado na presença de dimmer
+                relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
+
+                // Inicializar sensores de temperatura e umidade baseado na presença
+                if (relay.temperatureSensorPresent && relay.currentTemperatureValue === undefined) {
+                    relay.currentTemperatureValue = parseFloat((Math.random() * 20 + 15).toFixed(1))
+                }
+                
+                if (relay.humiditySensorPresent && relay.currentHumidityValue === undefined) {
+                    relay.currentHumidityValue = Math.floor(Math.random() * 60 + 30)
+                }
+                
+                if (relay.motionSensorPresent) {
+                    if (relay.motionLevel === undefined) relay.motionLevel = 0
+                    if (relay.motionDetectedCount === undefined) relay.motionDetectedCount = 0
                 }
 
                 // Configurar horários baseados no estado atual
@@ -176,6 +220,38 @@ export class InMemoryDataService {
     private calculateTotalPower(): number {
         // Potência típica de LED para iluminação pública: 50-150W
         return Math.floor(Math.random() * 100) + 50
+    }
+
+    private generateRandomObservation(): string {
+        const observations = [
+            'Poste danificado',
+            'Luminária com defeito',
+            'Cabo exposto',
+            'Manutenção preventiva necessária',
+            'Vidro quebrado',
+            'Oxidação detectada',
+            'Necessita limpeza',
+            'Ajuste de posição',
+            'Trepidação no vento',
+            'Iluminação insuficiente'
+        ]
+        return observations[Math.floor(Math.random() * observations.length)]
+    }
+
+    private generateRandomFailure(): string {
+        const failures = [
+            'LAMP_FAILURE',
+            'VOLTAGE_DROP',
+            'OVERHEAT',
+            'COMMUNICATION_LOSS',
+            'SENSOR_ERROR',
+            'DIMMER_FAULT',
+            'POWER_SUPPLY_ISSUE',
+            'RELAY_STUCK',
+            'SHORT_CIRCUIT',
+            'OVERCURRENT'
+        ]
+        return failures[Math.floor(Math.random() * failures.length)]
     }
 
     private calculatePowerValues(relay: RelayDetails): void {
@@ -231,14 +307,22 @@ export class InMemoryDataService {
         return '0011' // Online com internet do Chip (padrão)
     }
 
-    private getRandomRelayStatus(): RelayStatusType {
+    private getRandomRelayStatus(hasDimmer: boolean = false): RelayStatusType {
         const now = new Date()
         const isNight = now.getHours() >= 18 || now.getHours() <= 6
         
         if (isNight) {
             // À noite, 95% ligado, 3% desligado, 2% outros status
-            const nightStatuses: RelayStatusType[] = ['0101', '0110', '0111', '0001', '0010', '0011', '0100', '1000', '1001', '1010', '1011']
-            const nightWeights = [0.85, 0.03, 0.10, 0.005, 0.005, 0.002, 0.002, 0.002, 0.002, 0.001, 0.001]
+            let nightStatuses: RelayStatusType[] = ['0101', '0110', '0001', '0010', '0011', '0100', '1000', '1001', '1010', '1011']
+            let nightWeights = [0.85, 0.03, 0.005, 0.005, 0.002, 0.002, 0.002, 0.002, 0.001, 0.001]
+            
+            // Adicionar status dimerizado apenas se o dimmer estiver presente
+            if (hasDimmer) {
+                nightStatuses.splice(2, 0, '0111') // Inserir '0111' na posição 2
+                nightWeights.splice(2, 0, 0.10) // Inserir peso 0.10 na posição 2
+                // Ajustar outros pesos proporcionalmente
+                nightWeights[0] = 0.75 // Reduzir peso do ligado normal
+            }
             
             const random = Math.random()
             let cumulative = 0
@@ -251,8 +335,15 @@ export class InMemoryDataService {
             }
         } else {
             // Durante o dia, 98% desligado, apenas 1-2% ligado
-            const dayStatuses: RelayStatusType[] = ['0110', '0101', '0010', '0001', '0011', '0100', '0111', '1000', '1001', '1010', '1011']
-            const dayWeights = [0.98, 0.01, 0.002, 0.002, 0.001, 0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005]
+            let dayStatuses: RelayStatusType[] = ['0110', '0101', '0010', '0001', '0011', '0100', '1000', '1001', '1010', '1011']
+            let dayWeights = [0.98, 0.01, 0.002, 0.002, 0.001, 0.001, 0.001, 0.001, 0.0005, 0.0005]
+            
+            // Status dimerizado durante o dia é raro, mas possível se dimmer presente
+            if (hasDimmer) {
+                dayStatuses.splice(2, 0, '0111') // Inserir '0111' na posição 2
+                dayWeights.splice(2, 0, 0.002) // Inserir peso pequeno
+                dayWeights[0] = 0.975 // Ajustar peso do desligado
+            }
             
             const random = Math.random()
             let cumulative = 0
@@ -363,6 +454,10 @@ export class InMemoryDataService {
             case 'disable_dimmer':
                 relay.dimmerProgramming = false
                 relay.dimmerProgrammingValue = ''
+                // Se estava dimerizado e dimmer foi desabilitado, voltar para status normal
+                if (relay.status === '0111') {
+                    relay.status = relay.isOn ? '0101' : '0110'
+                }
                 break
                 
             case 'program_dimmer_percentage':
@@ -412,6 +507,81 @@ export class InMemoryDataService {
 
         this.calculatePowerValues(relay)
         return true
+    }
+
+    // Método para validar consistência dos dados dos relés
+    validateRelayData(): { totalRelays: number, invalidDimmerStatus: number, corrected: number } {
+        let totalRelays = 0
+        let invalidDimmerStatus = 0
+        let corrected = 0
+        
+        this.relays.forEach(relay => {
+            totalRelays++
+            
+            // Verificar se status dimerizado existe sem dimmer presente
+            if (relay.status === '0111' && !relay.dimmerPresent) {
+                invalidDimmerStatus++
+                relay.status = relay.isOn ? '0101' : '0110'
+                corrected++
+            }
+            
+            // Verificar se dimmer programming existe sem dimmer presente
+            if (relay.dimmerProgramming && !relay.dimmerPresent) {
+                relay.dimmerProgramming = false
+                relay.dimmerProgrammingValue = ''
+                relay.currentDimmerValue = 0
+                corrected++
+            }
+        })
+        
+        return { totalRelays, invalidDimmerStatus, corrected }
+    }
+
+    // Método público para obter estatísticas dos sensores
+    getSensorStatistics(): {
+        totalRelays: number
+        sensorsPresent: {
+            dimmer: number
+            lightSensor: number
+            gps: number
+            temperature: number
+            humidity: number
+            motion: number
+        }
+        averageValues: {
+            temperature?: number
+            humidity?: number
+            motionLevel?: number
+            ambientLight: number
+        }
+    } {
+        const allRelays = Array.from(this.relays.values())
+        const totalRelays = allRelays.length
+        
+        const sensorsPresent = {
+            dimmer: allRelays.filter(r => r.dimmerPresent).length,
+            lightSensor: allRelays.filter(r => r.lightSensorPresent).length,
+            gps: allRelays.filter(r => r.gpsPresent).length,
+            temperature: allRelays.filter(r => r.temperatureSensorPresent).length,
+            humidity: allRelays.filter(r => r.humiditySensorPresent).length,
+            motion: allRelays.filter(r => r.motionSensorPresent).length,
+        }
+        
+        const tempValues = allRelays.filter(r => r.currentTemperatureValue !== undefined)
+            .map(r => r.currentTemperatureValue!!)
+        const humidityValues = allRelays.filter(r => r.currentHumidityValue !== undefined)
+            .map(r => r.currentHumidityValue!!)
+        const motionValues = allRelays.filter(r => r.motionLevel !== undefined)
+            .map(r => r.motionLevel!!)
+        
+        const averageValues = {
+            temperature: tempValues.length > 0 ? parseFloat((tempValues.reduce((a, b) => a + b, 0) / tempValues.length).toFixed(1)) : undefined,
+            humidity: humidityValues.length > 0 ? Math.floor(humidityValues.reduce((a, b) => a + b, 0) / humidityValues.length) : undefined,
+            motionLevel: motionValues.length > 0 ? Math.floor(motionValues.reduce((a, b) => a + b, 0) / motionValues.length) : undefined,
+            ambientLight: Math.floor(allRelays.reduce((a, b) => a + b.ambientLight, 0) / totalRelays)
+        }
+        
+        return { totalRelays, sensorsPresent, averageValues }
     }
 
     // Método público para atualizar parâmetros de um relé e recalcular potências
@@ -468,8 +638,71 @@ export class InMemoryDataService {
                 }
             }
 
-            // Atualizar luz ambiente
+            // Atualizar sensores
             relay.ambientLight = this.calculateAmbientLight()
+            
+            // Simular sensor de temperatura
+            if (relay.temperatureSensorPresent && relay.currentTemperatureValue !== undefined) {
+                // Variação pequena de temperatura (-2°C a +2°C)
+                const variation = (Math.random() - 0.5) * 4
+                relay.currentTemperatureValue = parseFloat((relay.currentTemperatureValue + variation).toFixed(1))
+                // Manter entre 10°C e 40°C
+                relay.currentTemperatureValue = Math.max(10, Math.min(40, relay.currentTemperatureValue))
+            }
+            
+            // Simular sensor de umidade
+            if (relay.humiditySensorPresent && relay.currentHumidityValue !== undefined) {
+                // Variação pequena de umidade (-5% a +5%)
+                const variation = (Math.random() - 0.5) * 10
+                relay.currentHumidityValue = Math.floor(relay.currentHumidityValue + variation)
+                // Manter entre 20% e 95%
+                relay.currentHumidityValue = Math.max(20, Math.min(95, relay.currentHumidityValue))
+            }
+            
+            // Simular sensor de movimento
+            if (relay.motionSensorPresent) {
+                // Movimento detectado com mais frequência à noite
+                const now = new Date()
+                const isNight = now.getHours() >= 18 || now.getHours() <= 6
+                const motionChance = isNight ? 0.15 : 0.05
+                
+                if (Math.random() < motionChance && relay.motionDetectedCount !== undefined) {
+                    relay.lastMotionDetectedTime = new Date().toISOString()
+                    relay.motionDetectedCount++
+                    relay.motionLevel = Math.floor(Math.random() * 61 + 40) // 40-100% quando movimento detectado
+                } else if (relay.motionLevel !== undefined) {
+                    // Diminuir gradualmente o nível de movimento quando não há detecção
+                    relay.motionLevel = Math.max(0, relay.motionLevel - Math.floor(Math.random() * 10))
+                }
+            }
+            
+            // Atualizar valor do dimmer baseado no estado
+            if (relay.dimmerPresent) {
+                if (relay.dimmerProgramming && relay.dimmerProgrammingValue) {
+                    // Extrair percentual do valor programado
+                    const match = relay.dimmerProgrammingValue.match(/(\\d+)%/)
+                    if (match) {
+                        relay.currentDimmerValue = parseInt(match[1])
+                    }
+                } else if (relay.isOn) {
+                    relay.currentDimmerValue = 100 // 100% quando ligado sem dimerização
+                } else {
+                    relay.currentDimmerValue = 0 // 0% quando desligado
+                }
+            }
+            
+            // Validar e corrigir status baseado na presença de dimmer
+            if (relay.status === '0111' && !relay.dimmerPresent) {
+                // Se status é dimerizado mas não tem dimmer, corrigir para ligado ou desligado
+                relay.status = relay.isOn ? '0101' : '0110'
+            }
+            
+            // Simular acúmulo de energia ativa (apenas quando ligado)
+            if (relay.isOn && relay.activePower > 0) {
+                // Acumular energia baseado na potência ativa (simulando 1 hora de operação por ciclo)
+                const energyIncrement = relay.activePower / 1000 // Converter W para kW
+                relay.activeEnergy = parseFloat((relay.activeEnergy + energyIncrement).toFixed(2))
+            }
             
             // Recalcular todas as potências
             this.calculatePowerValues(relay)
