@@ -103,13 +103,16 @@ export class InMemoryDataService {
                     sector: Math.random() > 0.3 ? Math.floor(Math.random() * 10) + 1 : undefined,
                     isOn: this.calculateInitialRelayState(),
                     status: this.getRandomRelayStatus(),
-                    totalPower: this.calculateTotalPower(),
+                    totalPower: 0, // Será calculado
                     numberOfLights: 1,
                     version: Math.floor(Math.random() * 10) + 1,
                     installationDate: new Date(Date.now() - Math.random() * 94608000000).toISOString(),
                     voltage: Math.floor(Math.random() * 40) + 200,
                     current: parseFloat((Math.random() * 3 + 1).toFixed(2)),
                     activePower: 0, // Será calculado
+                    reactivePower: 0, // Será calculado
+                    apparentPower: 0, // Será calculado
+                    powerFactor: parseFloat((Math.random() * 0.2 + 0.8).toFixed(2)),
                     frequency: '60',
                     ambientLight: this.calculateAmbientLight(),
                     signal: Math.floor(Math.random() * 40) - 80,
@@ -126,12 +129,14 @@ export class InMemoryDataService {
                     temperatureSensorPresent: Math.random() > 0.8,
                     lightingTime: '',
                     shutdownTime: '',
-                    timeOn: '00:00:00'
+                    timeOn: '00:00:00',
+                    energyConsumption: parseFloat((Math.random() * 1000).toFixed(2)),
+                    firmwareVersion: `v1.3.5`,
+                    hardwareVersion: `v0.9`
                 }
 
-                // Calcular potência ativa
-                relay.activePower = Math.floor(relay.voltage * relay.current)
-                relay.totalPower = relay.activePower + Math.floor(Math.random() * 20)
+                // Calcular todas as potências usando o novo método
+                this.calculatePowerValues(relay)
 
                 // Configurar programação horária se ativo
                 if (relay.programmingHour) {
@@ -171,6 +176,29 @@ export class InMemoryDataService {
     private calculateTotalPower(): number {
         // Potência típica de LED para iluminação pública: 50-150W
         return Math.floor(Math.random() * 100) + 50
+    }
+
+    private calculatePowerValues(relay: RelayDetails): void {
+        if (!relay.isOn) {
+            relay.activePower = 0
+            relay.reactivePower = 0
+            relay.apparentPower = 0
+            relay.totalPower = 0
+            return
+        }
+
+        // Calcular potência aparente (S = V × I)
+        relay.apparentPower = parseFloat((relay.voltage * relay.current).toFixed(2))
+        
+        // Calcular potência ativa (P = S × cos(φ), onde cos(φ) é o fator de potência)
+        relay.activePower = parseFloat((relay.apparentPower * relay.powerFactor).toFixed(2))
+        
+        // Calcular potência reativa (Q = S × sen(φ), onde sen(φ) = √(1 - cos²(φ)))
+        const sinPhi = Math.sqrt(1 - Math.pow(relay.powerFactor, 2))
+        relay.reactivePower = parseFloat((relay.apparentPower * sinPhi).toFixed(2))
+        
+        // Atualizar potência total (para compatibilidade com código existente)
+        relay.totalPower = relay.activePower + Math.floor(Math.random() * 20)
     }
 
     private updateRelayTimes(relay: RelayDetails): void {
@@ -346,6 +374,7 @@ export class InMemoryDataService {
                 break
                 
             case 'disable_light_sensor':
+                if(relay.lightSensorPresent)
                 relay.lightSensorPresent = false
                 break
                 
@@ -364,12 +393,44 @@ export class InMemoryDataService {
                 return false
         }
 
-        // Recalcular potência se estado mudou
+        // Recalcular potências se estado mudou
         if (command.includes('turn_light')) {
-            relay.activePower = relay.isOn ? Math.floor(relay.voltage * relay.current) : 0
-            relay.totalPower = relay.activePower + (relay.isOn ? Math.floor(Math.random() * 20) : 0)
+            this.calculatePowerValues(relay)
         }
 
+        return true
+    }
+
+    // Método público para recalcular potências de um relé específico
+    updateRelayPowerValues(concentratorId: number, relayId: number): boolean {
+        const relayKey = `${concentratorId}_${relayId}`
+        const relay = this.relays.get(relayKey)
+        
+        if (!relay) {
+            return false
+        }
+
+        this.calculatePowerValues(relay)
+        return true
+    }
+
+    // Método público para atualizar parâmetros de um relé e recalcular potências
+    updateRelayParameters(concentratorId: number, relayId: number, updates: Partial<Pick<RelayDetails, 'voltage' | 'current' | 'powerFactor' | 'isOn'>>): boolean {
+        const relayKey = `${concentratorId}_${relayId}`
+        const relay = this.relays.get(relayKey)
+        
+        if (!relay) {
+            return false
+        }
+
+        // Atualizar parâmetros fornecidos
+        if (updates.voltage !== undefined) relay.voltage = updates.voltage
+        if (updates.current !== undefined) relay.current = updates.current
+        if (updates.powerFactor !== undefined) relay.powerFactor = updates.powerFactor
+        if (updates.isOn !== undefined) relay.isOn = updates.isOn
+
+        // Recalcular potências com novos valores
+        this.calculatePowerValues(relay)
         return true
     }
 
@@ -410,9 +471,8 @@ export class InMemoryDataService {
             // Atualizar luz ambiente
             relay.ambientLight = this.calculateAmbientLight()
             
-            // Recalcular potências
-            relay.activePower = relay.isOn ? Math.floor(relay.voltage * relay.current) : 0
-            relay.totalPower = relay.activePower + (relay.isOn ? Math.floor(Math.random() * 20) : 0)
+            // Recalcular todas as potências
+            this.calculatePowerValues(relay)
         })
     }
 }

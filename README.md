@@ -143,3 +143,8 @@ O sistema está **funcionando perfeitamente**:
 ```bash
 docker exec -it microservice_s1 sh
 ```
+
+## Docker compose build
+```bash  
+docker-compose up -d --build
+```

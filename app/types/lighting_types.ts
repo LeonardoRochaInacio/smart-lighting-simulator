@@ -43,6 +43,9 @@ export interface RelayDetails
     voltage: number
     current: number
     activePower: number
+    reactivePower: number
+    apparentPower: number
+    powerFactor: number
     frequency: string
     ambientLight: number
     signal: number
@@ -60,6 +63,7 @@ export interface RelayDetails
     lightingTime: string
     shutdownTime: string
     timeOn: string
+    energyConsumption: number
 }
 
 export interface RelaySummary 
