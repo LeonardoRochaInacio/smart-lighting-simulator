@@ -217,8 +217,9 @@ export class InMemoryDataService {
                     relay.hourProgrammingValue = '18:00,06:00'
                 }
 
-                // Configurar dimmer se presente e programado
-                if (relay.dimmerPresent && Math.random() > 0.7) {
+                // Configurar dimmer se presente - MUITO raro durante o dia
+                const isNight = this.isNightTime()
+                if (relay.dimmerPresent && (isNight ? Math.random() > 0.6 : Math.random() > 0.95)) {
                     relay.dimmerProgramming = true
                     const percentage = Math.floor(Math.random() * 50) + 50
                     relay.dimmerProgrammingValue = `${percentage}%`
@@ -293,8 +294,14 @@ export class InMemoryDataService {
 
     private calculateInitialRelayState(): boolean {
         const isNight = this.isNightTime()
-        // À noite, 99% ligado, de dia 1% ligado
-        return Math.random() < (isNight ? 0.99 : 0.01)
+        
+        if (isNight) {
+            // À noite: 85% de chance de estar ligado (comportamento normal)
+            return Math.random() < 0.85
+        } else {
+            // Durante o dia: apenas 3% de chance de estar ligado (economia de energia)
+            return Math.random() < 0.03
+        }
     }
 
     private calculateAmbientLight(): number {
@@ -744,6 +751,16 @@ export class InMemoryDataService {
                 relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
                 shouldCorrect = true
             }
+            // Dimmer ativo durante o dia (muito raro) - forçar desligamento na maioria dos casos
+            else if (relay.status === '0111' && !isNight && Math.random() < 0.9) {
+                relay.isOn = false
+                relay.dimmerProgramming = false
+                relay.dimmerProgrammingValue = ''
+                relay.currentDimmerValue = 0
+                relay.status = RelayStatus.RELAY_OFF // '0110'
+                relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                shouldCorrect = true
+            }
             
             if (shouldCorrect) {
                 corrected++
@@ -1075,13 +1092,19 @@ export class InMemoryDataService {
                     relay.isOn = true
                     relay.status = RelayStatus.RELAY_ON // '0101' - Normal à noite
                     relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
-                } else if (!isNight && relay.isOn && Math.random() < 0.8) {
-                    // Durante o dia, alta chance de desligar relés que estão ligados
+                } else if (!isNight && relay.isOn && Math.random() < 0.95) {
+                    // Durante o dia, MUITO alta chance de desligar relés que estão ligados
                     relay.isOn = false
                     relay.status = RelayStatus.RELAY_OFF // '0110' - Desligado normal
                     relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
-                } else if (!isNight && !relay.isOn && Math.random() < 0.001) {
-                    // Durante o dia, chance mínima de ligar (situação anômala)
+                    // Desabilitar dimmer durante o dia
+                    if (relay.dimmerProgramming && !isNight) {
+                        relay.dimmerProgramming = false
+                        relay.dimmerProgrammingValue = ''
+                        relay.currentDimmerValue = 0
+                    }
+                } else if (!isNight && !relay.isOn && Math.random() < 0.0005) {
+                    // Durante o dia, chance MINÚSCULA de ligar (situação anômala)
                     relay.isOn = true
                     relay.status = RelayStatus.LIGHT_ON_DAY // '0001' - Acesa durante o dia
                     relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]

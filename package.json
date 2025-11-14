@@ -61,6 +61,7 @@
     "luxon": "^3.4.4",
     "mirari-sos-microservices-todel": "file:",
     "mysql2": "^3.10.3",
+    "node-fetch": "^3.3.2",
     "reflect-metadata": "^0.2.2"
   },
   "hotHook": {
