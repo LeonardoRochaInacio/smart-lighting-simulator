@@ -227,8 +227,12 @@ export class InMemoryDataService {
                     relay.currentDimmerValue = relay.isOn ? 100 : 0
                 }
 
-                // Definir status baseado na presença de dimmer
-                relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
+                // Definir status baseado no horário, estado e presença de dimmer
+                if (relay.dimmerPresent && relay.dimmerProgramming) {
+                    relay.status = RelayStatus.DIMMED // '0111'
+                } else {
+                    relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
+                }
 
                 // Configurar sensor de luz: habilitado por padrão se sensor estiver fisicamente presente
                 relay.isLightSensorEnabled = relay.lightSensorPresent
@@ -261,6 +265,32 @@ export class InMemoryDataService {
         })
     }
 
+    // Método para definir status correto baseado no horário e estado
+    private getStatusBasedOnTimeAndState(isOn: boolean, hasDimmer: boolean = false, isDimmed: boolean = false): RelayStatusType {
+        const isNight = this.isNightTime()
+        
+        if (isDimmed && hasDimmer) {
+            return RelayStatus.DIMMED // '0111' - Dimerizado (válido dia e noite)
+        }
+        
+        if (isOn) {
+            // Relé ligado
+            if (isNight) {
+                return RelayStatus.RELAY_ON // '0101' - Ligado durante a noite (normal)
+            } else {
+                return RelayStatus.LIGHT_ON_DAY // '0001' - Ligado durante o dia (anômalo)
+            }
+        } else {
+            // Relé desligado
+            if (isNight) {
+                // À noite desligado pode ser normal (manual) ou anômalo
+                return Math.random() < 0.9 ? RelayStatus.RELAY_OFF : RelayStatus.LIGHT_OFF_NIGHT
+            } else {
+                return RelayStatus.RELAY_OFF // '0110' - Desligado durante o dia (normal)
+            }
+        }
+    }
+
     private calculateInitialRelayState(): boolean {
         const isNight = this.isNightTime()
         // À noite, 99% ligado, de dia 1% ligado
@@ -288,7 +318,7 @@ export class InMemoryDataService {
         if (currentLight < NIGHT_THRESHOLD && !relay.isOn && isNight) {
             // LDR detecta escuridão, liga automaticamente
             relay.isOn = true
-            relay.status = '0101'
+            relay.status = RelayStatus.RELAY_ON // '0101' - Normal à noite
             relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
             return true
         }
@@ -297,7 +327,7 @@ export class InMemoryDataService {
         if (currentLight > DAY_THRESHOLD && relay.isOn && !isNight) {
             // LDR detecta claridade, desliga automaticamente
             relay.isOn = false
-            relay.status = '0110'
+            relay.status = RelayStatus.RELAY_OFF // '0110' - Desligado normal
             relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
             return true
         }
@@ -401,6 +431,7 @@ export class InMemoryDataService {
         if (isNight) {
             // À noite: só podem existir status noturnos ou neutros
             // '0001' (acesa durante dia) NÃO pode existir à noite
+            // '0101' (ligado normal) É o status correto para ligado à noite
             // '0010' (apagada durante noite) PODE existir à noite
             let nightStatuses: RelayStatusType[] = ['0101', '0110', '0010', '0011', '0100', '1000', '1001', '1010', '1011']
             let nightWeights = [0.85, 0.03, 0.05, 0.002, 0.002, 0.002, 0.002, 0.001, 0.001]
@@ -531,13 +562,14 @@ export class InMemoryDataService {
         switch (command) {
             case 'turn_light_on':
                 relay.isOn = true
-                relay.status = '0101' // Luminária Ligado
+                // Definir status baseado no horário
+                relay.status = this.getStatusBasedOnTimeAndState(true, relay.dimmerPresent, false)
                 relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
                 break
                 
             case 'turn_light_off':
                 relay.isOn = false
-                relay.status = '0110' // Luminária Desligado
+                relay.status = RelayStatus.RELAY_OFF // '0110' - Sempre desligado normal
                 relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
                 relay.timeOn = '00:00:00'
                 break
@@ -545,24 +577,22 @@ export class InMemoryDataService {
             case 'enable_dimmer':
                 if (relay.dimmerPresent) {
                     relay.dimmerProgramming = true
-                    relay.status = '0111' // Luminária Dimerizado
+                    relay.status = RelayStatus.DIMMED // '0111' - Luminária Dimerizado
                 }
                 break
                 
             case 'disable_dimmer':
                 relay.dimmerProgramming = false
                 relay.dimmerProgrammingValue = ''
-                // Se estava dimerizado e dimmer foi desabilitado, voltar para status normal
-                if (relay.status === '0111') {
-                    relay.status = relay.isOn ? '0101' : '0110'
-                }
+                // Definir status baseado no estado atual e horário
+                relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
                 break
                 
             case 'program_dimmer_percentage':
                 if (relay.dimmerPresent && parameters?.percentage) {
                     relay.dimmerProgramming = true
                     relay.dimmerProgrammingValue = `${parameters.percentage}%`
-                    relay.status = '0111' // Luminária Dimerizado
+                    relay.status = RelayStatus.DIMMED // '0111' - Luminária Dimerizado
                 }
                 break
                 
@@ -650,9 +680,11 @@ export class InMemoryDataService {
                             correctedRelays++
                         }
                     } else if (isOnline && relay.status === RelayStatus.NO_COMMUNICATION) {
-                        // Concentrador voltou online - restaurar status do relé
-                        relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
-                        relay.isOn = this.calculateInitialRelayState()
+                        // Concentrador voltou online - restaurar status baseado no horário
+                        const newState = this.calculateInitialRelayState()
+                        relay.isOn = newState
+                        // SEMPRE usar status correto baseado no horário atual
+                        relay.status = this.getStatusBasedOnTimeAndState(newState, relay.dimmerPresent, false)
                         this.updateRelayTimes(relay)
                         correctedRelays++
                     }
@@ -687,6 +719,42 @@ export class InMemoryDataService {
         return true
     }
 
+    // Método para forçar correção de TODOS os status incorretos baseados no horário
+    public forceCorrectAllRelayStatuses(): { corrected: number, details: string[] } {
+        let corrected = 0
+        const details: string[] = []
+        const isNight = this.isNightTime()
+        
+        this.relays.forEach((relay, key) => {
+            const oldStatus = relay.status
+            let shouldCorrect = false
+            
+            // REGRA CRÍTICA: Relé ligado durante o dia NUNCA pode ter status '0101'
+            if (relay.isOn && !isNight && (relay.status === '0101' || relay.status === RelayStatus.RELAY_ON)) {
+                relay.status = RelayStatus.LIGHT_ON_DAY // '0001'
+                shouldCorrect = true
+            }
+            // Relé ligado durante a noite NUNCA pode ter status '0001'
+            else if (relay.isOn && isNight && (relay.status === '0001' || relay.status === RelayStatus.LIGHT_ON_DAY)) {
+                relay.status = RelayStatus.RELAY_ON // '0101'
+                shouldCorrect = true
+            }
+            // Dimmer sem hardware
+            else if (relay.status === '0111' && !relay.dimmerPresent) {
+                relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
+                shouldCorrect = true
+            }
+            
+            if (shouldCorrect) {
+                corrected++
+                const timeOfDay = isNight ? 'NOITE' : 'DIA'
+                details.push(`Relé ${key}: ${oldStatus} → ${relay.status} (${timeOfDay}, ligado: ${relay.isOn})`)
+            }
+        })
+        
+        return { corrected, details }
+    }
+
     // Método para validar consistência dos dados dos relés
     validateRelayData(): { totalRelays: number, invalidDimmerStatus: number, invalidTimeStatus: number, corrected: number } {
         let totalRelays = 0
@@ -702,7 +770,7 @@ export class InMemoryDataService {
             // Verificar se status dimerizado existe sem dimmer presente
             if (relay.status === '0111' && !relay.dimmerPresent) {
                 invalidDimmerStatus++
-                relay.status = relay.isOn ? '0101' : '0110'
+                relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
                 corrected++
             }
             
@@ -710,13 +778,28 @@ export class InMemoryDataService {
             if (isNight && relay.status === '0001') {
                 // À noite não pode ter "acesa durante o dia"
                 invalidTimeStatus++
-                relay.status = '0101' // Trocar para ligado normal
+                relay.status = RelayStatus.RELAY_ON // Trocar para ligado normal
                 corrected++
             } else if (!isNight && relay.status === '0010') {
                 // Durante o dia não pode ter "apagada durante a noite"
                 invalidTimeStatus++
-                relay.status = '0110' // Trocar para desligado normal
+                relay.status = RelayStatus.RELAY_OFF // Trocar para desligado normal
                 corrected++
+            }
+            
+            // Verificar se relé ligado tem status correto baseado no horário
+            if (relay.isOn) {
+                if (!isNight && (relay.status === RelayStatus.RELAY_ON || relay.status === '0101')) {
+                    // Ligado durante o dia mas com status de noite - SEMPRE CORRIGIR
+                    invalidTimeStatus++
+                    relay.status = RelayStatus.LIGHT_ON_DAY // '0001'
+                    corrected++
+                } else if (isNight && (relay.status === RelayStatus.LIGHT_ON_DAY || relay.status === '0001')) {
+                    // Ligado durante a noite mas com status de dia
+                    invalidTimeStatus++
+                    relay.status = RelayStatus.RELAY_ON // '0101'
+                    corrected++
+                }
             }
             
             // Verificar se dimmer programming existe sem dimmer presente
@@ -961,8 +1044,8 @@ export class InMemoryDataService {
             const isNight = this.isNightTime()
             
             if (relay.status === '0111' && !relay.dimmerPresent) {
-                // Se status é dimerizado mas não tem dimmer, corrigir para ligado ou desligado
-                relay.status = relay.isOn ? '0101' : '0110'
+                // Se status é dimerizado mas não tem dimmer, corrigir baseado no horário
+                relay.status = this.getStatusBasedOnTimeAndState(relay.isOn, relay.dimmerPresent, false)
             }
             
             // Validar consistência temporal dos status
@@ -972,6 +1055,37 @@ export class InMemoryDataService {
             } else if (!isNight && relay.status === '0010') {
                 // Durante o dia não pode ter "apagada durante a noite" 
                 relay.status = '0110' // Trocar para desligado normal
+            }
+            
+            // CRÍTICO: Corrigir TODOS os status incorretos baseados no horário
+            if (relay.isOn) {
+                if (!isNight && (relay.status === RelayStatus.RELAY_ON || relay.status === '0101')) {
+                    // Durante o dia + ligado = SEMPRE '0001' (ligado durante o dia)
+                    relay.status = RelayStatus.LIGHT_ON_DAY // '0001'
+                } else if (isNight && (relay.status === RelayStatus.LIGHT_ON_DAY || relay.status === '0001')) {
+                    // Durante a noite + ligado = SEMPRE '0101' (ligado normal)
+                    relay.status = RelayStatus.RELAY_ON // '0101'
+                }
+            }
+            
+            // Simular comportamento realístico baseado no horário (sem sensor LDR)
+            if (!relay.lightSensorPresent || !relay.isLightSensorEnabled) {
+                if (isNight && !relay.isOn && Math.random() < 0.03) {
+                    // À noite, chance de ligar relés que estão desligados
+                    relay.isOn = true
+                    relay.status = RelayStatus.RELAY_ON // '0101' - Normal à noite
+                    relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                } else if (!isNight && relay.isOn && Math.random() < 0.8) {
+                    // Durante o dia, alta chance de desligar relés que estão ligados
+                    relay.isOn = false
+                    relay.status = RelayStatus.RELAY_OFF // '0110' - Desligado normal
+                    relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                } else if (!isNight && !relay.isOn && Math.random() < 0.001) {
+                    // Durante o dia, chance mínima de ligar (situação anômala)
+                    relay.isOn = true
+                    relay.status = RelayStatus.LIGHT_ON_DAY // '0001' - Acesa durante o dia
+                    relay.lightingTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                }
             }
             
             // Simular acúmulo de energia ativa (apenas quando ligado)
@@ -984,6 +1098,12 @@ export class InMemoryDataService {
             // Recalcular todas as potências
             this.calculatePowerValues(relay)
         })
+        
+        // FORÇAR correção de todos os status incorretos a cada simulação
+        const correction = this.forceCorrectAllRelayStatuses()
+        if (correction.corrected > 0) {
+            console.log(`🔧 Status corrigidos automaticamente: ${correction.corrected}`)
+        }
     }
 
     // Método para simular reconexão de concentrador
@@ -1012,9 +1132,10 @@ export class InMemoryDataService {
                 const relay = this.relays.get(relayKey)
                 
                 if (relay && relay.status === RelayStatus.NO_COMMUNICATION) {
-                    // Restaurar status do relé
-                    relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
-                    relay.isOn = this.calculateInitialRelayState()
+                    // Restaurar status do relé baseado no horário
+                    const newState = this.calculateInitialRelayState()
+                    relay.isOn = newState
+                    relay.status = this.getStatusBasedOnTimeAndState(newState, relay.dimmerPresent, false)
                     this.updateRelayTimes(relay)
                     restoredRelays++
                 }

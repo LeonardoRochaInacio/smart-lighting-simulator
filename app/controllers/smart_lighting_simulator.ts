@@ -322,6 +322,9 @@ export default class SmartLightingSimulator
                         'GET /connectivity - Estatísticas de conectividade',
                         'POST /concentrators/:id/reconnect - Simular reconexão',
                         'POST /concentrators/:id/disconnect - Simular desconexão'
+                    ],
+                    validation: [
+                        'POST /validate/statuses - Corrigir todos os status incorretos'
                     ]
                 },
                 availableCommands: [
@@ -464,5 +467,18 @@ export default class SmartLightingSimulator
                 message: error.message || 'Erro interno do servidor'
             })
         }
+    }
+
+    // Endpoint para forçar correção de todos os status incorretos
+    async validateAndCorrectStatuses({ response }: HttpContext) {
+        const correction = inMemoryDataService.forceCorrectAllRelayStatuses()
+        
+        return response.json({
+            success: true,
+            message: `Correção de status executada`,
+            corrected: correction.corrected,
+            details: correction.details,
+            timestamp: new Date().toISOString()
+        })
     }
 }

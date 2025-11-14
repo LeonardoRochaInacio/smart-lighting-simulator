@@ -46,6 +46,9 @@ router.get('/connectivity', [SmartLightingSimulator, 'getConnectivity'])
 router.post('/concentrators/:id/reconnect', [SmartLightingSimulator, 'reconnectConcentrator'])
 router.post('/concentrators/:id/disconnect', [SmartLightingSimulator, 'disconnectConcentrator'])
 
+// Endpoint para validação e correção de status
+router.post('/validate/statuses', [SmartLightingSimulator, 'validateAndCorrectStatuses'])
+
 // Aliases para compatibilidade com o agregador
 router.get('/get_concentrators', [SmartLightingSimulator, 'getConcentrators'])
 router.get('/get_concentrator_details/:id', [SmartLightingSimulator, 'getConcentratorDetails'])
