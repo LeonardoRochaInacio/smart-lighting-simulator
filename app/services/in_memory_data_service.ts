@@ -55,11 +55,41 @@ export class InMemoryDataService {
         return hour >= 18 || hour <= 6
     }
 
+    // Método para verificar se concentrador está online
+    private isConcentratorOnline(concentratorId: number): boolean {
+        const concentrator = this.concentrators.get(concentratorId)
+        if (!concentrator) return false
+        
+        // Status offline: OFFLINE_30MIN, OFFLINE_60MIN, OFFLINE, NEVER_CONNECTED
+        const offlineStatuses = [
+            ConcentratorStatus.OFFLINE_30MIN,    // '0001'
+            ConcentratorStatus.OFFLINE_60MIN,    // '0010' 
+            ConcentratorStatus.OFFLINE,          // '0110'
+            ConcentratorStatus.NEVER_CONNECTED   // '0111'
+        ]
+        
+        return !offlineStatuses.includes(concentrator.status as ConcentratorStatusType)
+    }
+
     static getInstance(): InMemoryDataService {
         if (!InMemoryDataService.instance) {
             InMemoryDataService.instance = new InMemoryDataService()
         }
         return InMemoryDataService.instance
+    }
+
+    // Método para ajustar status do relé baseado no concentrador
+    private adjustRelayStatusBasedOnConcentrator(relay: RelayDetails): void {
+        const isConcentratorOnline = this.isConcentratorOnline(relay.idConcentrator)
+        
+        if (!isConcentratorOnline) {
+            // Se concentrador offline, relé deve estar sem comunicação
+            relay.status = RelayStatus.NO_COMMUNICATION // '1000'
+            relay.isOn = false
+            // Atualizar horário de desligamento
+            relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+            relay.timeOn = '00:00:00'
+        }
     }
 
     async initialize(): Promise<void> {
@@ -219,6 +249,9 @@ export class InMemoryDataService {
 
                 // Configurar horários baseados no estado atual
                 this.updateRelayTimes(relay)
+
+                // ✅ NOVA LÓGICA: Ajustar status baseado no concentrador
+                this.adjustRelayStatusBasedOnConcentrator(relay)
 
                 this.relays.set(relayKey, relay)
                 relayIds.add(relayData.id)
@@ -475,6 +508,12 @@ export class InMemoryDataService {
     }
 
     executeCommand(concentratorId: number, relayId: number, command: string, parameters?: any): boolean {
+        // ✅ NOVA VALIDAÇÃO: Verificar se concentrador está online
+        if (!this.isConcentratorOnline(concentratorId)) {
+            console.log(`❌ Comando rejeitado: Concentrador ${concentratorId} está offline`)
+            return false
+        }
+        
         const relayKey = `${concentratorId}_${relayId}`
         const relay = this.relays.get(relayKey)
         
@@ -570,6 +609,71 @@ export class InMemoryDataService {
         return true
     }
 
+    // Método público para validar consistência concentrador-relé
+    public validateConcentratorRelayConsistency(): {
+        totalConcentrators: number
+        offlineConcentrators: number
+        onlineConcentrators: number
+        totalRelays: number
+        offlineRelays: number
+        correctedRelays: number
+    } {
+        let offlineConcentrators = 0
+        let onlineConcentrators = 0
+        let correctedRelays = 0
+        let totalRelays = 0
+        let offlineRelays = 0
+
+        for (const concentrator of this.concentrators.values()) {
+            const isOnline = this.isConcentratorOnline(concentrator.id)
+            if (isOnline) {
+                onlineConcentrators++
+            } else {
+                offlineConcentrators++
+            }
+
+            const relayIds = this.concentratorToRelays.get(concentrator.id) || new Set()
+            for (const relayId of relayIds) {
+                totalRelays++
+                const relayKey = `${concentrator.id}_${relayId}`
+                const relay = this.relays.get(relayKey)
+                
+                if (relay) {
+                    if (!isOnline) {
+                        // Concentrador offline - relé deve estar sem comunicação
+                        offlineRelays++
+                        if (relay.status !== RelayStatus.NO_COMMUNICATION) {
+                            relay.status = RelayStatus.NO_COMMUNICATION
+                            relay.isOn = false
+                            relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                            relay.timeOn = '00:00:00'
+                            correctedRelays++
+                        }
+                    } else if (isOnline && relay.status === RelayStatus.NO_COMMUNICATION) {
+                        // Concentrador voltou online - restaurar status do relé
+                        relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
+                        relay.isOn = this.calculateInitialRelayState()
+                        this.updateRelayTimes(relay)
+                        correctedRelays++
+                    }
+                }
+            }
+        }
+
+        if (correctedRelays > 0) {
+            console.log(`🔧 Consistência Concentrador-Relé: ${correctedRelays} relés corrigidos`)
+        }
+        
+        return {
+            totalConcentrators: this.concentrators.size,
+            offlineConcentrators,
+            onlineConcentrators,
+            totalRelays,
+            offlineRelays,
+            correctedRelays
+        }
+    }
+
     // Método público para recalcular potências de um relé específico
     updateRelayPowerValues(concentratorId: number, relayId: number): boolean {
         const relayKey = `${concentratorId}_${relayId}`
@@ -625,6 +729,82 @@ export class InMemoryDataService {
         })
         
         return { totalRelays, invalidDimmerStatus, invalidTimeStatus, corrected }
+    }
+
+    // Método público para obter estatísticas de conectividade
+    public getConnectivityStatistics(): {
+        concentrators: {
+            total: number
+            online: number
+            offline: number
+            onlinePercentage: number
+            statusBreakdown: { [key: string]: number }
+        }
+        relays: {
+            total: number
+            online: number  
+            offline: number
+            onlinePercentage: number
+            noCommunication: number
+        }
+    } {
+        // Estatísticas dos concentradores
+        const concentratorStats = {
+            total: this.concentrators.size,
+            online: 0,
+            offline: 0,
+            onlinePercentage: 0,
+            statusBreakdown: {} as { [key: string]: number }
+        }
+
+        for (const concentrator of this.concentrators.values()) {
+            const isOnline = this.isConcentratorOnline(concentrator.id)
+            if (isOnline) {
+                concentratorStats.online++
+            } else {
+                concentratorStats.offline++
+            }
+
+            // Contabilizar breakdown por status
+            const status = concentrator.status
+            concentratorStats.statusBreakdown[status] = (concentratorStats.statusBreakdown[status] || 0) + 1
+        }
+
+        concentratorStats.onlinePercentage = concentratorStats.total > 0 
+            ? Math.round((concentratorStats.online / concentratorStats.total) * 100) 
+            : 0
+
+        // Estatísticas dos relés
+        const relayStats = {
+            total: this.relays.size,
+            online: 0,
+            offline: 0,
+            onlinePercentage: 0,
+            noCommunication: 0
+        }
+
+        for (const relay of this.relays.values()) {
+            const isConcentratorOnline = this.isConcentratorOnline(relay.idConcentrator)
+            
+            if (isConcentratorOnline && relay.status !== RelayStatus.NO_COMMUNICATION) {
+                relayStats.online++
+            } else {
+                relayStats.offline++
+            }
+
+            if (relay.status === RelayStatus.NO_COMMUNICATION) {
+                relayStats.noCommunication++
+            }
+        }
+
+        relayStats.onlinePercentage = relayStats.total > 0 
+            ? Math.round((relayStats.online / relayStats.total) * 100) 
+            : 0
+
+        return {
+            concentrators: concentratorStats,
+            relays: relayStats
+        }
     }
 
     // Método público para obter estatísticas dos sensores
@@ -708,6 +888,18 @@ export class InMemoryDataService {
 
         // Atualizar dados dos relés baseado em horário e sensores
         this.relays.forEach(relay => {
+            // ✅ NOVA VERIFICAÇÃO: Pular simulação se concentrador offline
+            if (!this.isConcentratorOnline(relay.idConcentrator)) {
+                // Garantir que relé está marcado como sem comunicação
+                if (relay.status !== RelayStatus.NO_COMMUNICATION) {
+                    relay.status = RelayStatus.NO_COMMUNICATION
+                    relay.isOn = false
+                    relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                    relay.timeOn = '00:00:00'
+                }
+                return // Pular outras simulações
+            }
+
             // Atualizar luz ambiente primeiro
             relay.ambientLight = this.calculateAmbientLight()
             
@@ -792,5 +984,85 @@ export class InMemoryDataService {
             // Recalcular todas as potências
             this.calculatePowerValues(relay)
         })
+    }
+
+    // Método para simular reconexão de concentrador
+    public simulateConcentratorReconnection(concentratorId: number): boolean {
+        const concentrator = this.concentrators.get(concentratorId)
+        if (!concentrator) return false
+
+        const wasOffline = !this.isConcentratorOnline(concentratorId)
+
+        if (wasOffline) {
+            // Simular reconexão: mudar para status online
+            const onlineStatuses = [ConcentratorStatus.ONLINE_CHIP, ConcentratorStatus.ONLINE_CABLE]
+            concentrator.status = onlineStatuses[Math.floor(Math.random() * onlineStatuses.length)]
+            
+            // Atualizar timestamps
+            concentrator.connectedSince = this.getBrazilTimestamp()
+            concentrator.disconnectedSince = ''
+            concentrator.lastReadings = this.getBrazilTimestamp()
+
+            // Restaurar relés associados
+            const relayIds = this.concentratorToRelays.get(concentratorId) || new Set()
+            let restoredRelays = 0
+
+            for (const relayId of relayIds) {
+                const relayKey = `${concentratorId}_${relayId}`
+                const relay = this.relays.get(relayKey)
+                
+                if (relay && relay.status === RelayStatus.NO_COMMUNICATION) {
+                    // Restaurar status do relé
+                    relay.status = this.getRandomRelayStatus(relay.dimmerPresent)
+                    relay.isOn = this.calculateInitialRelayState()
+                    this.updateRelayTimes(relay)
+                    restoredRelays++
+                }
+            }
+
+            console.log(`✅ Concentrador ${concentratorId} reconectado. ${restoredRelays} relés restaurados.`)
+            return true
+        }
+
+        return false // Já estava online
+    }
+
+    // Método para forçar desconexão de concentrador (para testes)
+    public simulateConcentratorDisconnection(concentratorId: number): boolean {
+        const concentrator = this.concentrators.get(concentratorId)
+        if (!concentrator) return false
+
+        const wasOnline = this.isConcentratorOnline(concentratorId)
+
+        if (wasOnline) {
+            // Simular desconexão: mudar para status offline
+            const offlineStatuses = [ConcentratorStatus.OFFLINE, ConcentratorStatus.OFFLINE_30MIN]
+            concentrator.status = offlineStatuses[Math.floor(Math.random() * offlineStatuses.length)]
+            
+            // Atualizar timestamps
+            concentrator.disconnectedSince = this.getBrazilTimestamp()
+
+            // Marcar relés como sem comunicação
+            const relayIds = this.concentratorToRelays.get(concentratorId) || new Set()
+            let disconnectedRelays = 0
+
+            for (const relayId of relayIds) {
+                const relayKey = `${concentratorId}_${relayId}`
+                const relay = this.relays.get(relayKey)
+                
+                if (relay && relay.status !== RelayStatus.NO_COMMUNICATION) {
+                    relay.status = RelayStatus.NO_COMMUNICATION
+                    relay.isOn = false
+                    relay.shutdownTime = this.getBrazilTimestamp().split('T')[1].split('.')[0]
+                    relay.timeOn = '00:00:00'
+                    disconnectedRelays++
+                }
+            }
+
+            console.log(`❌ Concentrador ${concentratorId} desconectado. ${disconnectedRelays} relés offline.`)
+            return true
+        }
+
+        return false // Já estava offline
     }
 }

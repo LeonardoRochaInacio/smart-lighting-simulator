@@ -287,19 +287,20 @@ export default class SmartLightingSimulator
     {
         try 
         {
-            // Obter dados do sistema através do dataService
-            const allConcentrators = this.dataService.getAllConcentrators(0, 999999)
-            const totalRelays = allConcentrators.data.reduce((total, concentrator) => {
-                const concentratorDetails = this.dataService.getConcentratorDetails(parseInt(concentrator.id))
-                return total + (concentratorDetails?.totalRelays || 0)
-            }, 0)
+            await this.dataService.initialize()
+            
+            // Obter estatísticas de conectividade
+            const connectivityStats = this.dataService.getConnectivityStatistics()
+            
+            // Validar consistência e obter correções
+            const consistencyValidation = this.dataService.validateConcentratorRelayConsistency()
             
             return response.json({
                 success: true,
                 message: 'Sistema de simulação de iluminação inteligente operacional',
                 timestamp: new Date().toISOString(),
-                totalConcentrators: allConcentrators.total,
-                totalRelays: totalRelays,
+                connectivity: connectivityStats,
+                consistency: consistencyValidation,
                 availableEndpoints: {
                     concentrators: [
                         'GET /concentrators - Lista concentradores',
@@ -316,6 +317,11 @@ export default class SmartLightingSimulator
                     commands: [
                         'POST /commands - Executa comando no relé',
                         'POST /execute_command - Alias para compatibilidade'
+                    ],
+                    connectivity: [
+                        'GET /connectivity - Estatísticas de conectividade',
+                        'POST /concentrators/:id/reconnect - Simular reconexão',
+                        'POST /concentrators/:id/disconnect - Simular desconexão'
                     ]
                 },
                 availableCommands: [
@@ -324,6 +330,7 @@ export default class SmartLightingSimulator
                     Commands.ENABLE_DIMMER,
                     Commands.DISABLE_DIMMER,
                     Commands.PROGRAM_DIMMER_PERCENTAGE,
+                    Commands.ENABLE_LIGHT_SENSOR,
                     Commands.DISABLE_LIGHT_SENSOR,
                     Commands.ENABLE_LIGHT_TIME_PROGRAM,
                     Commands.SETUP_LIGHT_TIME_PROGRAM
@@ -334,7 +341,127 @@ export default class SmartLightingSimulator
         {
             return response.status(500).json({
                 success: false,
-                message: error.message || 'Erro ao verificar status do sistema'
+                message: error.message || 'Erro interno do servidor'
+            })
+        }
+    }
+
+    /**
+     * GET /connectivity
+     * Retorna estatísticas de conectividade concentradores e relés
+     */
+    public async getConnectivity({ response }: HttpContext)
+    {
+        try 
+        {
+            await this.dataService.initialize()
+            
+            const connectivityStats = this.dataService.getConnectivityStatistics()
+            const consistencyStats = this.dataService.validateConcentratorRelayConsistency()
+            
+            return response.json({
+                success: true,
+                timestamp: new Date().toISOString(),
+                connectivity: connectivityStats,
+                consistency: consistencyStats,
+                elapsedTime: `${(Math.random() * 50 + 10).toFixed(4)}ms`
+            })
+        } 
+        catch (error) 
+        {
+            return response.status(500).json({
+                success: false,
+                message: error.message || 'Erro interno do servidor'
+            })
+        }
+    }
+
+    /**
+     * POST /concentrators/:id/reconnect
+     * Simula reconexão de um concentrador
+     */
+    public async reconnectConcentrator({ params, response }: HttpContext)
+    {
+        try 
+        {
+            await this.dataService.initialize()
+            
+            const concentratorId = parseInt(params.id)
+            
+            if (isNaN(concentratorId)) {
+                return response.status(400).json({
+                    success: false,
+                    message: 'ID do concentrador deve ser um número válido'
+                })
+            }
+            
+            const reconnected = this.dataService.simulateConcentratorReconnection(concentratorId)
+            
+            if (!reconnected) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Concentrador ${concentratorId} não encontrado ou já estava online`
+                })
+            }
+            
+            return response.json({
+                success: true,
+                message: `Concentrador ${concentratorId} reconectado com sucesso`,
+                concentratorId,
+                timestamp: new Date().toISOString(),
+                elapsedTime: `${(Math.random() * 100 + 50).toFixed(4)}ms`
+            })
+        } 
+        catch (error) 
+        {
+            return response.status(500).json({
+                success: false,
+                message: error.message || 'Erro interno do servidor'
+            })
+        }
+    }
+
+    /**
+     * POST /concentrators/:id/disconnect
+     * Simula desconexão de um concentrador
+     */
+    public async disconnectConcentrator({ params, response }: HttpContext)
+    {
+        try 
+        {
+            await this.dataService.initialize()
+            
+            const concentratorId = parseInt(params.id)
+            
+            if (isNaN(concentratorId)) {
+                return response.status(400).json({
+                    success: false,
+                    message: 'ID do concentrador deve ser um número válido'
+                })
+            }
+            
+            const disconnected = this.dataService.simulateConcentratorDisconnection(concentratorId)
+            
+            if (!disconnected) {
+                return response.status(404).json({
+                    success: false,
+                    message: `Concentrador ${concentratorId} não encontrado ou já estava offline`
+                })
+            }
+            
+            return response.json({
+                success: true,
+                message: `Concentrador ${concentratorId} desconectado`,
+                concentratorId,
+                timestamp: new Date().toISOString(),
+                elapsedTime: `${(Math.random() * 100 + 50).toFixed(4)}ms`
+            })
+        } 
+        catch (error) 
+        {
+            return response.status(500).json({
+                success: false,
+                message: error.message || 'Erro interno do servidor'
             })
         }
     }

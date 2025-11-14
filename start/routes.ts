@@ -41,6 +41,11 @@ router.get('/concentrators/:concentratorId/relays/:relayId/details', [SmartLight
 // POST /commands - Executa comando no relé
 router.post('/commands', [SmartLightingSimulator, 'executeCommand'])
 
+// Endpoints de conectividade
+router.get('/connectivity', [SmartLightingSimulator, 'getConnectivity'])
+router.post('/concentrators/:id/reconnect', [SmartLightingSimulator, 'reconnectConcentrator'])
+router.post('/concentrators/:id/disconnect', [SmartLightingSimulator, 'disconnectConcentrator'])
+
 // Aliases para compatibilidade com o agregador
 router.get('/get_concentrators', [SmartLightingSimulator, 'getConcentrators'])
 router.get('/get_concentrator_details/:id', [SmartLightingSimulator, 'getConcentratorDetails'])
