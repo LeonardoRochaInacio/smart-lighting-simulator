@@ -70,6 +70,22 @@ export interface RelayDetails
     dimmerProgrammingValue: string
     dimmerPresent: boolean
     currentDimmerValue?: number
+    
+    // Agendamento de liga/desliga
+    scheduledSwitchEnabled?: boolean
+    scheduledTurnOnTime?: string   // Formato HH:MM
+    scheduledTurnOffTime?: string  // Formato HH:MM
+    
+    // Configuração avançada de dimmer (usa dimmerProgramming)
+    lightingUpStartTime?: string        // Formato HH:MM
+    lightingUpDurationMinutes?: number  // Duração em minutos
+    lightingUpFinalValue?: number       // Valor final 0-100%
+    lightingDownStartTime?: string      // Formato HH:MM
+    lightingDownDurationMinutes?: number // Duração em minutos
+    lightingDownFinalValue?: number     // Valor final 0-100%
+    
+    // Valor manual do dimmer (undefined = não manual)
+    dimmerManualValue?: number  // Valor manual 0-100%
     lightSensorPresent: boolean
     isLightSensorEnabled?: boolean
     gpsPresent?: boolean
@@ -150,10 +166,11 @@ export const Commands = {
     TURN_LIGHT_OFF: 'turn_light_off',
     ENABLE_DIMMER: 'enable_dimmer',
     DISABLE_DIMMER: 'disable_dimmer',
-    PROGRAM_DIMMER_PERCENTAGE: 'program_dimmer_percentage',
     ENABLE_LIGHT_SENSOR: 'enable_light_sensor',
     DISABLE_LIGHT_SENSOR: 'disable_light_sensor',
     ENABLE_LIGHT_TIME_PROGRAM: 'enable_light_time_program',
     DISABLE_LIGHT_TIME_PROGRAM: 'disable_light_time_program',
-    SETUP_LIGHT_TIME_PROGRAM: 'setup_light_time_program'
+    SET_SCHEDULED_SWITCH_TIME: 'set_scheduled_switch_time',
+    SETUP_DIMMER: 'setup_dimmer',
+    SET_DIMMER_VALUE: 'set_dimmer_value'
 } as const

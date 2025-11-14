@@ -7,6 +7,7 @@ import type {
     RelayDetails
 } from '../types/lighting_types.js'
 import { ConcentratorStatus, RelayStatus } from '../types/lighting_types.js'
+import logger from '@adonisjs/core/services/logger'
 
 type ConcentratorStatusType = typeof ConcentratorStatus[keyof typeof ConcentratorStatus]
 type RelayStatusType = typeof RelayStatus[keyof typeof RelayStatus]
@@ -187,6 +188,22 @@ export class InMemoryDataService {
                     dimmerProgrammingValue: '',
                     dimmerPresent: Math.random() > 0.4,
                     currentDimmerValue: Math.random() > 0.4 ? Math.floor(Math.random() * 101) : 0, // 0-100%
+                     
+                    // Novas propriedades para agendamento
+                    scheduledSwitchEnabled: Math.random() > 0.8, // 20% têm agendamento
+                    scheduledTurnOnTime: undefined,
+                    scheduledTurnOffTime: undefined,
+                    
+                    // Propriedades para configuração avançada de dimmer (usa dimmerProgramming)
+                    lightingUpStartTime: undefined,
+                    lightingUpDurationMinutes: undefined,
+                    lightingUpFinalValue: undefined,
+                    lightingDownStartTime: undefined,
+                    lightingDownDurationMinutes: undefined,
+                    lightingDownFinalValue: undefined,
+                    
+                    // Valor manual do dimmer (undefined = não manual)
+                    dimmerManualValue: undefined,
                     lightSensorPresent: true,
                     isLightSensorEnabled: undefined, // Será definido após lightSensorPresent
                     gpsPresent: Math.random() > 0.7,
@@ -547,6 +564,7 @@ export class InMemoryDataService {
 
     executeCommand(concentratorId: number, relayId: number, command: string, parameters?: any): boolean {
         // ✅ NOVA VALIDAÇÃO: Verificar se concentrador está online
+        console.log(command, parameters)
         if (!this.isConcentratorOnline(concentratorId)) {
             console.log(`❌ Comando rejeitado: Concentrador ${concentratorId} está offline`)
             return false
@@ -564,6 +582,8 @@ export class InMemoryDataService {
         if (concentrator) {
             concentrator.lastReadings = this.getBrazilTimestamp()
         }
+
+        
 
         // Executar comando no relé
         switch (command) {
@@ -627,10 +647,69 @@ export class InMemoryDataService {
                 relay.programmingHour = false
                 break
                 
-            case 'setup_light_time_program':
-                if (parameters?.onTime && parameters?.offTime) {
+            case 'set_scheduled_switch_time':
+                if (parameters?.turn_on_time && parameters?.turn_off_time) {
                     relay.programmingHour = true
-                    relay.hourProgrammingValue = `${parameters.onTime},${parameters.offTime}`
+                    relay.hourProgrammingValue = `${parameters.turn_on_time},${parameters.turn_off_time}`
+                }
+                break
+                
+            /*case 'set_scheduled_switch_time':
+                if (parameters?.turn_on_time && parameters?.turn_off_time) {
+                    relay.scheduledSwitchEnabled = true
+                    relay.scheduledTurnOnTime = parameters.turn_on_time
+                    relay.scheduledTurnOffTime = parameters.turn_off_time
+                    console.log(`📅 Agendamento configurado para relé ${relayId}: Liga ${parameters.turn_on_time}, Desliga ${parameters.turn_off_time}`)
+                }
+                break
+                */
+            case 'setup_dimmer':
+                if (relay.dimmerPresent && parameters?.lighting_up_start_time && parameters?.lighting_down_start_time) {
+                    // Usar dimmerProgramming para indicar que o setup avançado está ativo
+                    relay.dimmerProgramming = true
+                    relay.lightingUpStartTime = parameters.lighting_up_start_time
+                    relay.lightingUpDurationMinutes = parameters.lighting_up_duration_in_minutes || 60
+                    relay.lightingUpFinalValue = parameters.lighting_up_final_value || 100
+                    relay.lightingDownStartTime = parameters.lighting_down_start_time
+                    relay.lightingDownDurationMinutes = parameters.lighting_down_duration_in_minutes || 60
+                    relay.lightingDownFinalValue = parameters.lighting_down_final_value || 0
+                    
+                    // Limpar valor manual (setup avançado tem prioridade)
+                    relay.dimmerManualValue = undefined
+                    relay.status = RelayStatus.DIMMED // '0111'
+                    
+                    console.log(`🎛️ Dimmer configurado para relé ${relayId}: Subida ${parameters.lighting_up_start_time} (${parameters.lighting_up_final_value}%), Descida ${parameters.lighting_down_start_time} (${parameters.lighting_down_final_value}%)`)
+                } else if (!relay.dimmerPresent) {
+                    return false // Não pode configurar dimmer se não estiver presente
+                }
+                break
+                
+            case 'set_dimmer_value':
+                if (relay.dimmerPresent && parameters?.dimmer_manual_value !== undefined) {
+                    // Definir valor manual (diferente de undefined indica modo manual)
+                    relay.dimmerManualValue = Math.max(0, Math.min(100, parameters.dimmer_manual_value)) // Garantir 0-100%
+                    relay.currentDimmerValue = relay.dimmerManualValue
+                    
+                    // Limpar setup avançado (manual tem prioridade)
+                    relay.lightingUpStartTime = undefined
+                    relay.lightingDownStartTime = undefined
+                    relay.dimmerProgrammingValue = `${relay.dimmerManualValue}%`
+                    
+                    // Atualizar status baseado no valor
+                    if (relay.dimmerManualValue > 0) {
+                        relay.isOn = true
+                        relay.status = RelayStatus.DIMMED // '0111'
+                        relay.dimmerProgramming = false
+                    } else {
+                        relay.isOn = false
+                        relay.status = RelayStatus.RELAY_OFF // '0110'
+                        relay.dimmerProgramming = false
+                        relay.dimmerProgrammingValue = ''
+                    }
+                    
+                    console.log(`🔆 Valor manual do dimmer definido para relé ${relayId}: ${relay.dimmerManualValue}%`)
+                } else if (!relay.dimmerPresent) {
+                    return false // Não pode definir valor se dimmer não estiver presente
                 }
                 break
                 
@@ -976,6 +1055,12 @@ export class InMemoryDataService {
         return true
     }
 
+    // Método auxiliar para converter HH:MM em minutos
+    private timeToMinutes(time: string): number {
+        const [hours, minutes] = time.split(':').map(Number)
+        return hours * 60 + minutes
+    }
+
     // Método para simular mudanças automáticas no sistema (chamado periodicamente)
     simulateSystemUpdates(): void {
         // Atualizar dados dos concentradores
@@ -1042,11 +1127,70 @@ export class InMemoryDataService {
                 }
             }
             
-            // Atualizar valor do dimmer baseado no estado
+            // Simular agendamento automático de liga/desliga
+            if (relay.scheduledSwitchEnabled && relay.scheduledTurnOnTime && relay.scheduledTurnOffTime) {
+                const currentTime = this.getBrazilTimestamp().split('T')[1].split('.')[0].substring(0, 5) // HH:MM
+                
+                // Verificar se é hora de ligar
+                if (currentTime === relay.scheduledTurnOnTime && !relay.isOn) {
+                    relay.isOn = true
+                    relay.status = this.getStatusBasedOnTimeAndState(true, relay.dimmerPresent, false)
+                    relay.lightingTime = currentTime
+                    console.log(`⏰ Agendamento: Relé ${key} ligado às ${currentTime}`)
+                }
+                
+                // Verificar se é hora de desligar
+                if (currentTime === relay.scheduledTurnOffTime && relay.isOn) {
+                    relay.isOn = false
+                    relay.status = RelayStatus.RELAY_OFF
+                    relay.shutdownTime = currentTime
+                    console.log(`⏰ Agendamento: Relé ${key} desligado às ${currentTime}`)
+                }
+            }
+            
+            // Simular dimmer configurado com horários de subida/descida
+            if (relay.dimmerProgramming && relay.lightingUpStartTime && relay.lightingDownStartTime && relay.dimmerManualValue === undefined) {
+                const currentTime = this.getBrazilTimestamp().split('T')[1].split('.')[0].substring(0, 5) // HH:MM
+                const currentMinutes = this.timeToMinutes(currentTime)
+                
+                // Simular período de subida do dimmer
+                const upStartMinutes = this.timeToMinutes(relay.lightingUpStartTime)
+                const upEndMinutes = upStartMinutes + (relay.lightingUpDurationMinutes || 60)
+                
+                if (currentMinutes >= upStartMinutes && currentMinutes <= upEndMinutes) {
+                    const progress = (currentMinutes - upStartMinutes) / (relay.lightingUpDurationMinutes || 60)
+                    const targetValue = Math.min(100, Math.max(0, Math.floor(progress * (relay.lightingUpFinalValue || 100))))
+                    
+                    relay.currentDimmerValue = targetValue
+                    relay.isOn = targetValue > 0
+                    relay.status = targetValue > 0 ? RelayStatus.DIMMED : RelayStatus.RELAY_OFF
+                }
+                
+                // Simular período de descida do dimmer
+                const downStartMinutes = this.timeToMinutes(relay.lightingDownStartTime)
+                const downEndMinutes = downStartMinutes + (relay.lightingDownDurationMinutes || 60)
+                
+                if (currentMinutes >= downStartMinutes && currentMinutes <= downEndMinutes) {
+                    const progress = (currentMinutes - downStartMinutes) / (relay.lightingDownDurationMinutes || 60)
+                    const startValue = relay.currentDimmerValue || 100
+                    const targetValue = Math.max(0, startValue - Math.floor(progress * (startValue - (relay.lightingDownFinalValue || 0))))
+                    
+                    relay.currentDimmerValue = targetValue
+                    relay.isOn = targetValue > 0
+                    relay.status = targetValue > 0 ? RelayStatus.DIMMED : RelayStatus.RELAY_OFF
+                }
+            }
+            
+            // Atualizar valor do dimmer baseado no estado e configurações
             if (relay.dimmerPresent) {
-                if (relay.dimmerProgramming && relay.dimmerProgrammingValue) {
-                    // Extrair percentual do valor programado
-                    const match = relay.dimmerProgrammingValue.match(/(\\d+)%/)
+                if (relay.dimmerManualValue !== undefined) {
+                    // Valor manual tem prioridade absoluta
+                    relay.currentDimmerValue = relay.dimmerManualValue
+                } else if (relay.dimmerProgramming && relay.lightingUpStartTime && relay.lightingDownStartTime) {
+                    // Setup avançado com horários (já atualizado na simulação anterior)
+                } else if (relay.dimmerProgramming && relay.dimmerProgrammingValue) {
+                    // Extrair percentual do valor programado simples
+                    const match = relay.dimmerProgrammingValue.match(/(\d+)%/)
                     if (match) {
                         relay.currentDimmerValue = parseInt(match[1])
                     }

@@ -179,6 +179,7 @@ export default class SmartLightingSimulator
      */
     public async executeCommand({ request, response }: HttpContext)
     {
+        console.log('########### EXECUTANDO COMANDO ###########') 
         try 
         {
             const { command, concentratorId, relayId, parameters } = request.body()
@@ -197,12 +198,13 @@ export default class SmartLightingSimulator
                 Commands.TURN_LIGHT_OFF,
                 Commands.ENABLE_DIMMER,
                 Commands.DISABLE_DIMMER,
-                Commands.PROGRAM_DIMMER_PERCENTAGE,
                 Commands.DISABLE_LIGHT_SENSOR,
                 Commands.ENABLE_LIGHT_TIME_PROGRAM,
                 Commands.DISABLE_LIGHT_TIME_PROGRAM,
-                Commands.SETUP_LIGHT_TIME_PROGRAM,
-                Commands.ENABLE_LIGHT_SENSOR
+                Commands.ENABLE_LIGHT_SENSOR,
+                Commands.SET_SCHEDULED_SWITCH_TIME,
+                Commands.SETUP_DIMMER,
+                Commands.SET_DIMMER_VALUE
             ]
             let commandValid = false
             for (const validCommand of validCommands) 
@@ -336,7 +338,11 @@ export default class SmartLightingSimulator
                     Commands.ENABLE_LIGHT_SENSOR,
                     Commands.DISABLE_LIGHT_SENSOR,
                     Commands.ENABLE_LIGHT_TIME_PROGRAM,
-                    Commands.SETUP_LIGHT_TIME_PROGRAM
+                    Commands.DISABLE_LIGHT_TIME_PROGRAM,
+                    Commands.SETUP_LIGHT_TIME_PROGRAM,
+                    Commands.SET_SCHEDULED_SWITCH_TIME,
+                    Commands.SETUP_DIMMER,
+                    Commands.SET_DIMMER_VALUE
                 ]
             })
         } 
