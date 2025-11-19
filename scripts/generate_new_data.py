@@ -4,6 +4,26 @@ import math
 import random
 from typing import List, Dict, Tuple
 
+def calculate_optimal_concentrators(total_points: int, min_lcus_per_concentrator: int = 450, max_lcus_per_concentrator: int = 500) -> int:
+    """Calcula o número ótimo de concentradores para distribuir LCUs entre 450-500 por concentrador"""
+    
+    # Descontar alguns pontos que serão usados como concentradores
+    available_lcus = total_points - 20  # Estimativa: 20 concentradores máximo
+    
+    # Calcular número ótimo visando ~475 LCUs por concentrador
+    target_lcus_per_concentrator = 475
+    optimal_concentrators = math.ceil(available_lcus / target_lcus_per_concentrator)
+    
+    # Verificar se está dentro dos limites
+    avg_lcus_per_concentrator = available_lcus / optimal_concentrators
+    
+    if avg_lcus_per_concentrator > max_lcus_per_concentrator:
+        optimal_concentrators = math.ceil(available_lcus / max_lcus_per_concentrator)
+    elif avg_lcus_per_concentrator < min_lcus_per_concentrator:
+        optimal_concentrators = math.ceil(available_lcus / min_lcus_per_concentrator)
+    
+    return optimal_concentrators
+
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calcula a distância entre dois pontos em km usando a fórmula de Haversine"""
     R = 6371  # Raio da Terra em km
@@ -52,46 +72,59 @@ def load_points_from_csv(filepath: str) -> List[Dict]:
     
     return points
 
-def select_concentrators(points: List[Dict], num_concentrators: int = 12) -> List[Dict]:
-    """Seleciona concentradores equidistantes usando algoritmo de k-means modificado"""
+def select_concentrators(points: List[Dict], num_concentrators: int = None) -> List[Dict]:
+    """Seleciona concentradores equidistantes usando algoritmo melhorado de distribuição geográfica"""
+    
+    # Se não especificado, calcular automaticamente
+    if num_concentrators is None:
+        num_concentrators = calculate_optimal_concentrators(len(points))
+    
+    print(f"🎯 Calculando {num_concentrators} concentradores para {len(points)} pontos...")
+    print(f"📊 Média estimada: {(len(points) - num_concentrators) / num_concentrators:.1f} LCUs por concentrador")
     
     # Calcular centro geográfico
     center_lat = sum(p['latitude'] for p in points) / len(points)
     center_lon = sum(p['longitude'] for p in points) / len(points)
     
-    # Calcular raio aproximado da área
-    max_distance = max(calculate_distance(center_lat, center_lon, p['latitude'], p['longitude']) for p in points)
-    
-    # Selecionar concentradores em um grid aproximadamente circular
+    # Usar algoritmo de k-means++ para melhor distribuição
     concentrators = []
     selected_ids = set()
     
-    # Primeiro concentrador no centro
+    # Primeiro concentrador: mais central
     center_point = min(points, key=lambda p: calculate_distance(center_lat, center_lon, p['latitude'], p['longitude']))
-    if center_point['id'] not in selected_ids:
-        concentrators.append(center_point)
-        selected_ids.add(center_point['id'])
+    concentrators.append(center_point)
+    selected_ids.add(center_point['id'])
     
-    # Selecionar os demais concentradores distribuídos radialmente
-    remaining = num_concentrators - 1
-    for i in range(remaining):
-        angle = (2 * math.pi * i) / remaining
-        radius = max_distance * 0.6  # 60% do raio máximo
-        
-        target_lat = center_lat + (radius / 111.0) * math.cos(angle)  # 1° ≈ 111km
-        target_lon = center_lon + (radius / (111.0 * math.cos(math.radians(center_lat)))) * math.sin(angle)
-        
-        # Encontrar o ponto mais próximo da posição target que não foi selecionado
+    # Demais concentradores: maximizar distância dos já selecionados
+    for i in range(num_concentrators - 1):
         candidates = [p for p in points if p['id'] not in selected_ids]
-        if candidates:
-            best_point = min(candidates, key=lambda p: calculate_distance(target_lat, target_lon, p['latitude'], p['longitude']))
-            concentrators.append(best_point)
-            selected_ids.add(best_point['id'])
+        
+        if not candidates:
+            break
+        
+        # Para cada candidato, calcular a distância mínima para concentradores existentes
+        best_candidate = None
+        max_min_distance = 0
+        
+        for candidate in candidates:
+            min_distance = min(
+                calculate_distance(candidate['latitude'], candidate['longitude'], 
+                                 conc['latitude'], conc['longitude'])
+                for conc in concentrators
+            )
+            
+            if min_distance > max_min_distance:
+                max_min_distance = min_distance
+                best_candidate = candidate
+        
+        if best_candidate:
+            concentrators.append(best_candidate)
+            selected_ids.add(best_candidate['id'])
     
     return concentrators
 
-def assign_relays_to_concentrators(points: List[Dict], concentrators: List[Dict], max_relays_per_concentrator: int = 200) -> Dict:
-    """Atribui relés aos concentradores baseado na proximidade geográfica"""
+def assign_relays_to_concentrators(points: List[Dict], concentrators: List[Dict]) -> Dict:
+    """Atribui relés aos concentradores baseado na proximidade geográfica com distribuição balanceada"""
     
     concentrator_ids = {c['id'] for c in concentrators}
     available_points = [p for p in points if p['id'] not in concentrator_ids]
@@ -100,35 +133,73 @@ def assign_relays_to_concentrators(points: List[Dict], concentrators: List[Dict]
         'concentrators': []
     }
     
-    assigned_relay_ids = set()
+    print(f"🔗 Atribuindo {len(available_points)} LCUs para {len(concentrators)} concentradores...")
     
+    # Primeira passagem: atribuir cada LCU ao concentrador mais próximo
+    concentrator_assignments = {c['id']: [] for c in concentrators}
+    
+    for point in available_points:
+        # Encontrar concentrador mais próximo
+        closest_concentrator = min(
+            concentrators, 
+            key=lambda c: calculate_distance(
+                point['latitude'], point['longitude'], 
+                c['latitude'], c['longitude']
+            )
+        )
+        
+        concentrator_assignments[closest_concentrator['id']].append({
+            'id': point['id'],
+            'latitude': point['latitude'],
+            'longitude': point['longitude'],
+            'type': point['type'],
+            'power': point['power'],
+            'area': point['area'],
+            'distance': calculate_distance(
+                point['latitude'], point['longitude'],
+                closest_concentrator['latitude'], closest_concentrator['longitude']
+            )
+        })
+    
+    # Segunda passagem: balancear cargas (limitar a 500 LCUs por concentrador)
+    max_lcus_per_concentrator = 500
+    
+    # Identificar concentradores sobrecarregados
+    overloaded = {}
+    for conc_id, relays in concentrator_assignments.items():
+        if len(relays) > max_lcus_per_concentrator:
+            # Ordenar por distância e manter apenas os mais próximos
+            relays.sort(key=lambda r: r['distance'])
+            overloaded[conc_id] = relays[max_lcus_per_concentrator:]
+            concentrator_assignments[conc_id] = relays[:max_lcus_per_concentrator]
+    
+    # Redistribuir LCUs excedentes para concentradores com menos carga
+    for conc_id, excess_relays in overloaded.items():
+        for relay in excess_relays:
+            # Encontrar concentrador com menor carga que aceite esta LCU
+            best_concentrator = None
+            best_distance = float('inf')
+            
+            for c in concentrators:
+                if len(concentrator_assignments[c['id']]) < max_lcus_per_concentrator:
+                    distance = calculate_distance(
+                        relay['latitude'], relay['longitude'],
+                        c['latitude'], c['longitude']
+                    )
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_concentrator = c
+            
+            if best_concentrator:
+                relay['distance'] = best_distance
+                concentrator_assignments[best_concentrator['id']].append(relay)
+    
+    # Montar resultado final
     for concentrator in concentrators:
-        # Calcular distâncias de todos os pontos disponíveis para este concentrador
-        distances = []
-        for point in available_points:
-            if point['id'] not in assigned_relay_ids:
-                dist = calculate_distance(
-                    concentrator['latitude'], concentrator['longitude'],
-                    point['latitude'], point['longitude']
-                )
-                distances.append((dist, point))
+        relays = concentrator_assignments[concentrator['id']]
         
-        # Ordenar por distância e pegar os mais próximos
-        distances.sort(key=lambda x: x[0])
-        
-        # Atribuir até max_relays_per_concentrator relés mais próximos
-        relays = []
-        for dist, point in distances[:max_relays_per_concentrator]:
-            if point['id'] not in assigned_relay_ids:
-                relays.append({
-                    'id': point['id'],
-                    'latitude': point['latitude'],
-                    'longitude': point['longitude'],
-                    'type': point['type'],
-                    'power': point['power'],
-                    'area': point['area']
-                })
-                assigned_relay_ids.add(point['id'])
+        # Remover campo 'distance' dos relés para o resultado final
+        clean_relays = [{k: v for k, v in relay.items() if k != 'distance'} for relay in relays]
         
         concentrator_data = {
             'id': concentrator['id'],
@@ -140,7 +211,7 @@ def assign_relays_to_concentrators(points: List[Dict], concentrators: List[Dict]
                 'power': concentrator['power'],
                 'area': concentrator['area']
             },
-            'relays': relays
+            'relays': clean_relays
         }
         
         result['concentrators'].append(concentrator_data)
@@ -154,35 +225,50 @@ def main():
     points = load_points_from_csv('assets/points.csv')
     print(f"✅ {len(points)} pontos carregados do CSV")
     
-    if len(points) < 12:
-        print("❌ Erro: Não há pontos suficientes para criar 12 concentradores")
+    if len(points) < 10:
+        print("❌ Erro: Não há pontos suficientes para criar concentradores")
         return
     
-    # Selecionar 12 concentradores equidistantes
-    print("🎯 Selecionando 12 concentradores equidistantes...")
-    concentrators = select_concentrators(points, 12)
+    # Calcular número ótimo de concentradores automaticamente
+    num_concentrators = calculate_optimal_concentrators(len(points))
+    print(f"📊 Número ótimo de concentradores calculado: {num_concentrators}")
+    
+    # Selecionar concentradores com melhor distribuição geográfica
+    print("🎯 Selecionando concentradores com distribuição geográfica otimizada...")
+    concentrators = select_concentrators(points, num_concentrators)
     print(f"✅ {len(concentrators)} concentradores selecionados")
     
     # Exibir coordenadas dos concentradores
     print("\n📍 Concentradores selecionados:")
     for i, c in enumerate(concentrators):
-        print(f"  {i+1}. ID: {c['id']} - Lat: {c['latitude']:.5f}, Lon: {c['longitude']:.5f}")
+        print(f"  {i+1:2d}. ID: {c['id']} - Lat: {c['latitude']:.5f}, Lon: {c['longitude']:.5f}")
     
-    # Atribuir relés aos concentradores
-    print("\n🔗 Atribuindo relés aos concentradores...")
-    result = assign_relays_to_concentrators(points, concentrators, 200)
+    # Atribuir relés aos concentradores com balanceamento
+    print("\n🔗 Atribuindo relés aos concentradores com balanceamento de carga...")
+    result = assign_relays_to_concentrators(points, concentrators)
     
-    # Estatísticas
+    # Estatísticas detalhadas
     total_relays = sum(len(c['relays']) for c in result['concentrators'])
-    print(f"\n📊 Estatísticas:")
+    print(f"\n📊 Estatísticas finais:")
     print(f"  • Total de concentradores: {len(result['concentrators'])}")
-    print(f"  • Total de relés: {total_relays}")
-    print(f"  • Pontos não atribuídos: {len(points) - len(concentrators) - total_relays}")
+    print(f"  • Total de relés atribuídos: {total_relays}")
+    print(f"  • Pontos não utilizados: {len(points) - len(concentrators) - total_relays}")
+    print(f"  • Média de LCUs por concentrador: {total_relays / len(concentrators):.1f}")
     
-    # Distribuição de relés por concentrador
-    print(f"\n🏗️ Distribuição de relés:")
+    # Distribuição detalhada por concentrador
+    print(f"\n🏗️ Distribuição de relés por concentrador:")
     for i, c in enumerate(result['concentrators']):
-        print(f"  • Concentrador {i+1} (ID: {c['id']}): {len(c['relays'])} relés")
+        num_relays = len(c['relays'])
+        status = "✅" if 450 <= num_relays <= 500 else "⚠️" if num_relays > 500 else "📊"
+        print(f"  {status} Concentrador {i+1:2d} (ID: {c['id']:7d}): {num_relays:3d} relés")
+    
+    # Verificar distribuição
+    within_range = sum(1 for c in result['concentrators'] if 450 <= len(c['relays']) <= 500)
+    over_limit = sum(1 for c in result['concentrators'] if len(c['relays']) > 500)
+    
+    print(f"\n📈 Análise de distribuição:")
+    print(f"  • Concentradores na faixa ideal (450-500): {within_range}/{len(concentrators)}")
+    print(f"  • Concentradores acima do limite (>500): {over_limit}/{len(concentrators)}")
     
     # Salvar resultado
     output_path = 'assets/generated_data.json'

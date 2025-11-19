@@ -1,6 +1,27 @@
 const fs = require('fs');
 const path = require('path');
 
+// Função para calcular número ótimo de concentradores
+function calculateOptimalConcentrators(totalPoints, minLcusPerConcentrator = 450, maxLcusPerConcentrator = 500) {
+    // Descontar alguns pontos que serão usados como concentradores
+    const availableLcus = totalPoints - 20; // Estimativa: 20 concentradores máximo
+    
+    // Calcular número ótimo visando ~475 LCUs por concentrador
+    const targetLcusPerConcentrator = 475;
+    let optimalConcentrators = Math.ceil(availableLcus / targetLcusPerConcentrator);
+    
+    // Verificar se está dentro dos limites
+    const avgLcusPerConcentrator = availableLcus / optimalConcentrators;
+    
+    if (avgLcusPerConcentrator > maxLcusPerConcentrator) {
+        optimalConcentrators = Math.ceil(availableLcus / maxLcusPerConcentrator);
+    } else if (avgLcusPerConcentrator < minLcusPerConcentrator) {
+        optimalConcentrators = Math.ceil(availableLcus / minLcusPerConcentrator);
+    }
+    
+    return optimalConcentrators;
+}
+
 // Função para calcular distância entre dois pontos (Haversine)
 function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371; // Raio da Terra em km
@@ -25,7 +46,6 @@ function loadPointsFromCSV(filepath) {
     
     const csvContent = fs.readFileSync(filepath, 'utf-8');
     const lines = csvContent.split('\n');
-    const header = lines[0].split(';');
     
     const points = [];
     
@@ -63,25 +83,25 @@ function loadPointsFromCSV(filepath) {
     return points;
 }
 
-// Selecionar concentradores equidistantes
-function selectConcentrators(points, numConcentrators = 12) {
-    console.log('🎯 Selecionando 12 concentradores equidistantes...');
+// Selecionar concentradores com melhor distribuição geográfica
+function selectConcentrators(points, numConcentrators = null) {
+    // Se não especificado, calcular automaticamente
+    if (numConcentrators === null) {
+        numConcentrators = calculateOptimalConcentrators(points.length);
+    }
+    
+    console.log(`🎯 Calculando ${numConcentrators} concentradores para ${points.length} pontos...`);
+    console.log(`📊 Média estimada: ${((points.length - numConcentrators) / numConcentrators).toFixed(1)} LCUs por concentrador`);
     
     // Calcular centro geográfico
     const centerLat = points.reduce((sum, p) => sum + p.latitude, 0) / points.length;
     const centerLon = points.reduce((sum, p) => sum + p.longitude, 0) / points.length;
     
-    console.log(`📍 Centro geográfico: ${centerLat.toFixed(5)}, ${centerLon.toFixed(5)}`);
-    
-    // Calcular raio aproximado da área
-    const maxDistance = Math.max(...points.map(p => 
-        calculateDistance(centerLat, centerLon, p.latitude, p.longitude)
-    ));
-    
+    // Usar algoritmo de k-means++ para melhor distribuição
     const concentrators = [];
     const selectedIds = new Set();
     
-    // Primeiro concentrador no centro
+    // Primeiro concentrador: mais central
     const centerPoint = points.reduce((closest, point) => {
         const distToCenter = calculateDistance(centerLat, centerLon, point.latitude, point.longitude);
         const closestDist = calculateDistance(centerLat, centerLon, closest.latitude, closest.longitude);
@@ -91,87 +111,130 @@ function selectConcentrators(points, numConcentrators = 12) {
     concentrators.push(centerPoint);
     selectedIds.add(centerPoint.id);
     
-    // Selecionar os demais concentradores em um padrão radial
-    const remaining = numConcentrators - 1;
-    for (let i = 0; i < remaining; i++) {
-        const angle = (2 * Math.PI * i) / remaining;
-        const radius = maxDistance * 0.7; // 70% do raio máximo
-        
-        const targetLat = centerLat + (radius / 111.0) * Math.cos(angle); // 1° ≈ 111km
-        const targetLon = centerLon + (radius / (111.0 * Math.cos(centerLat * Math.PI / 180))) * Math.sin(angle);
-        
-        // Encontrar o ponto mais próximo da posição target que não foi selecionado
+    // Demais concentradores: maximizar distância dos já selecionados
+    for (let i = 0; i < numConcentrators - 1; i++) {
         const candidates = points.filter(p => !selectedIds.has(p.id));
-        if (candidates.length > 0) {
-            const bestPoint = candidates.reduce((closest, point) => {
-                const distToTarget = calculateDistance(targetLat, targetLon, point.latitude, point.longitude);
-                const closestDist = calculateDistance(targetLat, targetLon, closest.latitude, closest.longitude);
-                return distToTarget < closestDist ? point : closest;
-            });
+        
+        if (candidates.length === 0) break;
+        
+        // Para cada candidato, calcular a distância mínima para concentradores existentes
+        let bestCandidate = null;
+        let maxMinDistance = 0;
+        
+        for (const candidate of candidates) {
+            const minDistance = Math.min(...concentrators.map(conc => 
+                calculateDistance(candidate.latitude, candidate.longitude, conc.latitude, conc.longitude)
+            ));
             
-            concentrators.push(bestPoint);
-            selectedIds.add(bestPoint.id);
+            if (minDistance > maxMinDistance) {
+                maxMinDistance = minDistance;
+                bestCandidate = candidate;
+            }
+        }
+        
+        if (bestCandidate) {
+            concentrators.push(bestCandidate);
+            selectedIds.add(bestCandidate.id);
         }
     }
     
-    console.log(`✅ ${concentrators.length} concentradores selecionados`);
-    
-    // Exibir concentradores selecionados
-    console.log('\n📍 Concentradores selecionados:');
-    concentrators.forEach((c, i) => {
-        console.log(`  ${i + 1}. ID: ${c.id} - Lat: ${c.latitude.toFixed(5)}, Lon: ${c.longitude.toFixed(5)}`);
-    });
-    
+    console.log(`📍 Centro geográfico: ${centerLat.toFixed(5)}, ${centerLon.toFixed(5)}`);
     return concentrators;
 }
-
-// Atribuir relés aos concentradores
-function assignRelaysToConcentrators(points, concentrators, maxRelaysPerConcentrator = 200) {
-    console.log('\n🔗 Atribuindo relés aos concentradores...');
-    
+// Atribuir relés aos concentradores com melhor distribuição geográfica
+function assignRelaysToConcentrators(points, concentrators) {
     const concentratorIds = new Set(concentrators.map(c => c.id));
     const availablePoints = points.filter(p => !concentratorIds.has(p.id));
     
-    const result = {
-        concentrators: []
-    };
+    console.log(`🔗 Atribuindo ${availablePoints.length} LCUs para ${concentrators.length} concentradores...`);
     
-    const assignedRelayIds = new Set();
+    // Primeira passagem: atribuir cada LCU ao concentrador mais próximo
+    const concentratorAssignments = {};
+    concentrators.forEach(c => {
+        concentratorAssignments[c.id] = [];
+    });
+    
+    for (const point of availablePoints) {
+        // Encontrar concentrador mais próximo
+        let closestConcentrator = concentrators[0];
+        let minDistance = calculateDistance(
+            point.latitude, point.longitude,
+            closestConcentrator.latitude, closestConcentrator.longitude
+        );
+        
+        for (const concentrator of concentrators) {
+            const distance = calculateDistance(
+                point.latitude, point.longitude,
+                concentrator.latitude, concentrator.longitude
+            );
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestConcentrator = concentrator;
+            }
+        }
+        
+        concentratorAssignments[closestConcentrator.id].push({
+            id: point.id,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            type: point.type,
+            power: point.power,
+            area: point.area,
+            distance: minDistance
+        });
+    }
+    
+    // Segunda passagem: balancear cargas (limitar a 500 LCUs por concentrador)
+    const maxLcusPerConcentrator = 500;
+    const overloaded = {};
+    
+    for (const [concId, relays] of Object.entries(concentratorAssignments)) {
+        if (relays.length > maxLcusPerConcentrator) {
+            // Ordenar por distância e manter apenas os mais próximos
+            relays.sort((a, b) => a.distance - b.distance);
+            overloaded[concId] = relays.slice(maxLcusPerConcentrator);
+            concentratorAssignments[concId] = relays.slice(0, maxLcusPerConcentrator);
+        }
+    }
+    
+    // Redistribuir LCUs excedentes
+    for (const [concId, excessRelays] of Object.entries(overloaded)) {
+        for (const relay of excessRelays) {
+            // Encontrar concentrador com menor carga
+            let bestConcentrator = null;
+            let bestDistance = Infinity;
+            
+            for (const concentrator of concentrators) {
+                if (concentratorAssignments[concentrator.id].length < maxLcusPerConcentrator) {
+                    const distance = calculateDistance(
+                        relay.latitude, relay.longitude,
+                        concentrator.latitude, concentrator.longitude
+                    );
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestConcentrator = concentrator;
+                    }
+                }
+            }
+            
+            if (bestConcentrator) {
+                relay.distance = bestDistance;
+                concentratorAssignments[bestConcentrator.id].push(relay);
+            }
+        }
+    }
+    
+    // Montar resultado final
+    const result = { concentrators: [] };
     
     for (const concentrator of concentrators) {
-        // Calcular distâncias de todos os pontos disponíveis para este concentrador
-        const distances = [];
-        for (const point of availablePoints) {
-            if (!assignedRelayIds.has(point.id)) {
-                const dist = calculateDistance(
-                    concentrator.latitude, concentrator.longitude,
-                    point.latitude, point.longitude
-                );
-                distances.push({ distance: dist, point: point });
-            }
-        }
+        const relays = concentratorAssignments[concentrator.id].map(relay => {
+            const { distance, ...cleanRelay } = relay;
+            return cleanRelay;
+        });
         
-        // Ordenar por distância e pegar os mais próximos
-        distances.sort((a, b) => a.distance - b.distance);
-        
-        // Atribuir até maxRelaysPerConcentrator relés mais próximos
-        const relays = [];
-        for (let i = 0; i < Math.min(distances.length, maxRelaysPerConcentrator); i++) {
-            const { point } = distances[i];
-            if (!assignedRelayIds.has(point.id)) {
-                relays.push({
-                    id: point.id,
-                    latitude: point.latitude,
-                    longitude: point.longitude,
-                    type: point.type,
-                    power: point.power,
-                    area: point.area
-                });
-                assignedRelayIds.add(point.id);
-            }
-        }
-        
-        const concentratorData = {
+        result.concentrators.push({
             id: concentrator.id,
             point: {
                 id: concentrator.id,
@@ -182,56 +245,88 @@ function assignRelaysToConcentrators(points, concentrators, maxRelaysPerConcentr
                 area: concentrator.area
             },
             relays: relays
-        };
-        
-        result.concentrators.push(concentratorData);
+        });
     }
     
     return result;
 }
 
+// Função principal
 function main() {
-    try {
-        console.log('🚀 Iniciando geração de novo generated_data.json\n');
-        
-        // Carregar pontos do CSV
-        const csvPath = path.join(__dirname, '..', 'assets', 'points.csv');
-        const points = loadPointsFromCSV(csvPath);
-        
-        if (points.length < 12) {
-            console.log('❌ Erro: Não há pontos suficientes para criar 12 concentradores');
-            return;
-        }
-        
-        // Selecionar concentradores
-        const concentrators = selectConcentrators(points, 12);
-        
-        // Atribuir relés
-        const result = assignRelaysToConcentrators(points, concentrators, 150); // Limitando a 150 por concentrador para melhor distribuição
-        
-        // Estatísticas
-        const totalRelays = result.concentrators.reduce((sum, c) => sum + c.relays.length, 0);
-        console.log('\n📊 Estatísticas:');
-        console.log(`  • Total de concentradores: ${result.concentrators.length}`);
-        console.log(`  • Total de relés: ${totalRelays}`);
-        console.log(`  • Pontos não atribuídos: ${points.length - concentrators.length - totalRelays}`);
-        
-        // Distribuição de relés por concentrador
-        console.log('\n🏗️ Distribuição de relés:');
-        result.concentrators.forEach((c, i) => {
-            console.log(`  • Concentrador ${i + 1} (ID: ${c.id}): ${c.relays.length} relés`);
-        });
-        
-        // Salvar resultado
-        const outputPath = path.join(__dirname, '..', 'assets', 'generated_data.json');
-        fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf-8');
-        
-        console.log(`\n✅ Arquivo salvo em: ${outputPath}`);
-        console.log('🌟 Geração concluída com sucesso!');
-        
-    } catch (error) {
-        console.error('❌ Erro durante a geração:', error);
+    console.log('🚀 Iniciando geração de novo generated_data.json\n');
+    
+    const csvPath = path.join(__dirname, '..', 'assets', 'points.csv');
+    const outputPath = path.join(__dirname, '..', 'assets', 'generated_data.json');
+    
+    // Carregar pontos do CSV
+    const points = loadPointsFromCSV(csvPath);
+    
+    if (points.length < 10) {
+        console.log('❌ Erro: Não há pontos suficientes para criar concentradores');
+        return;
     }
+    
+    // Calcular número ótimo de concentradores
+    const numConcentrators = calculateOptimalConcentrators(points.length);
+    console.log(`📊 Número ótimo de concentradores calculado: ${numConcentrators}`);
+    
+    // Selecionar concentradores
+    console.log('\n🎯 Selecionando concentradores com distribuição geográfica otimizada...');
+    const concentrators = selectConcentrators(points, numConcentrators);
+    console.log(`✅ ${concentrators.length} concentradores selecionados`);
+    
+    // Exibir concentradores selecionados
+    console.log('\n📍 Concentradores selecionados:');
+    concentrators.forEach((c, i) => {
+        console.log(`  ${(i+1).toString().padStart(2)}. ID: ${c.id.toString().padStart(7)} - Lat: ${c.latitude.toFixed(5)}, Lon: ${c.longitude.toFixed(5)}`);
+    });
+    
+    // Atribuir relés
+    console.log('\n🔗 Atribuindo relés aos concentradores com balanceamento de carga...');
+    const result = assignRelaysToConcentrators(points, concentrators);
+    
+    // Estatísticas detalhadas
+    const totalRelays = result.concentrators.reduce((sum, c) => sum + c.relays.length, 0);
+    console.log(`\n📊 Estatísticas finais:`);
+    console.log(`  • Total de concentradores: ${result.concentrators.length}`);
+    console.log(`  • Total de relés atribuídos: ${totalRelays}`);
+    console.log(`  • Pontos não utilizados: ${points.length - concentrators.length - totalRelays}`);
+    console.log(`  • Média de LCUs por concentrador: ${(totalRelays / concentrators.length).toFixed(1)}`);
+    
+    // Distribuição detalhada
+    console.log(`\n🏗️ Distribuição de relés por concentrador:`);
+    result.concentrators.forEach((c, i) => {
+        const numRelays = c.relays.length;
+        const status = (numRelays >= 450 && numRelays <= 500) ? '✅' : 
+                       (numRelays > 500) ? '⚠️' : '📊';
+        console.log(`  ${status} Concentrador ${(i+1).toString().padStart(2)} (ID: ${c.id.toString().padStart(7)}): ${numRelays.toString().padStart(3)} relés`);
+    });
+    
+    // Análise de distribuição
+    const withinRange = result.concentrators.filter(c => c.relays.length >= 450 && c.relays.length <= 500).length;
+    const overLimit = result.concentrators.filter(c => c.relays.length > 500).length;
+    
+    console.log(`\n📈 Análise de distribuição:`);
+    console.log(`  • Concentradores na faixa ideal (450-500): ${withinRange}/${concentrators.length}`);
+    console.log(`  • Concentradores acima do limite (>500): ${overLimit}/${concentrators.length}`);
+    
+    // Salvar resultado
+    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf-8');
+    
+    console.log(`\n✅ Arquivo salvo em: ${outputPath}`);
+    console.log('🌟 Geração concluída com sucesso!');
 }
 
-main();
+// Executar função principal
+if (require.main === module) {
+    main();
+}
+
+module.exports = {
+    calculateOptimalConcentrators,
+    calculateDistance,
+    loadPointsFromCSV,
+    selectConcentrators,
+    assignRelaysToConcentrators,
+    main
+};
