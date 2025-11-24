@@ -33,12 +33,6 @@ RUN node ace build --ignore-ts-errors
 # Ensure config directory exists in build folder
 RUN mkdir -p ./build/config
 
-# Copy configuration files that aren't automatically copied by build
-COPY config/providers.json ./build/config/providers.json
-
-# Verify the file was copied correctly (for debugging)
-RUN ls -la ./build/config/ && cat ./build/config/providers.json | head -5
-
 # Set production environment variables
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
