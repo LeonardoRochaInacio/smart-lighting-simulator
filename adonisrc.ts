@@ -45,6 +45,22 @@ export default defineConfig({
 
   /*
   |--------------------------------------------------------------------------
+  | Meta Files
+  |--------------------------------------------------------------------------
+  |
+  | A collection of files you want to copy to the build directory when creating
+  | the production build.
+  |
+  */
+  metaFiles: [
+    {
+      pattern: 'assets/**/*',
+      reloadServer: false,
+    },
+  ],
+
+  /*
+  |--------------------------------------------------------------------------
   | Tests
   |--------------------------------------------------------------------------
   |

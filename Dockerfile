@@ -30,6 +30,9 @@ RUN npm ci
 # Build project
 RUN node ace build --ignore-ts-errors
 
+# ✅ CORREÇÃO CLOUD RUN: Garantir que assets/ seja copiado para build
+RUN cp -r ./assets ./build/ 2>/dev/null || mkdir -p ./build/assets && cp ./assets/* ./build/assets/ 2>/dev/null || echo "Aviso: Pasta assets não encontrada ou vazia"
+
 # Ensure config directory exists in build folder
 RUN mkdir -p ./build/config
 
